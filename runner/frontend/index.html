@@ -171,6 +171,12 @@
                             <template x-if="agent.variant">
                                 <span> · <span x-text="agent.variant"></span></span>
                             </template>
+                            <template x-if="agent.agentId">
+                                <span> · <span x-text="agent.agentId"></span></span>
+                            </template>
+                            <template x-if="agent.projectId">
+                                <span> · <span x-text="agent.projectId"></span></span>
+                            </template>
                         </div>
                     </div>
                     <div class="agent-actions">
@@ -193,6 +199,12 @@
                         <span class="badge" x-text="selectedAgent.status"></span>
                         <template x-if="selectedAgent.variant">
                             <span class="badge" x-text="selectedAgent.variant"></span>
+                        </template>
+                        <template x-if="selectedAgent.agentId">
+                            <span class="badge" x-text="'agent: ' + selectedAgent.agentId"></span>
+                        </template>
+                        <template x-if="selectedAgent.projectId">
+                            <span class="badge" x-text="'project: ' + selectedAgent.projectId"></span>
                         </template>
                         <template x-if="selectedAgent.ttydPort">
                             <span class="badge" x-text="':' + selectedAgent.ttydPort"></span>
