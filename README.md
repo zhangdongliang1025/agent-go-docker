@@ -8,7 +8,6 @@ Docker images for launching Claude Code container environments, a local startup 
 - `agent-go`: Local startup script that installs `agent-cc` / `agent-cc-web` / `agent-cc-tmux` commands.
 - `entrypoint.sh`: Container entrypoint handling UID mapping, tmux/ttyd startup, etc.
 - `runner/`: Go-based HTTP runner providing APIs to dynamically spin up agent containers per project.
-- `build.sh`: One-click build and push for all multi-architecture images (including runner).
 
 ## Build Instructions
 
