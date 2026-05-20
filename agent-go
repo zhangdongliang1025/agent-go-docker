@@ -30,8 +30,8 @@ Usage: agent-go <command> [options]
 
 Commands:
   agent-cc         Start claude in interactive CLI mode (default)
-  agent-cc-web     Start claude with ttyd web terminal + tmux (background)
-  agent-cc-tmux    Start claude inside a tmux session
+  agent-cc-web     Start claude with ttyd web terminal + shpool session (background)
+  agent-cc-tmux    Start claude inside a shpool session
   add              Create symlinks for agent commands in a directory (default: ~/.local/bin)
 
 Image options:
@@ -112,6 +112,7 @@ append_common_docker_args() {
         -e "HOST_GID=$(id -g)"
         -e "TZ=${TZ:-:/etc/localtime}"
         -e "HOME=/home/node"
+        -e "XDG_RUNTIME_DIR=/tmp/runtime-node"
         -e "AGENT_ID=${AGENT_ID}"
     )
 
@@ -142,6 +143,7 @@ run_docker() {
 
 run_docker_detached() {
     local docker_args=(run -d --rm --network=host)
+    [ -n "${CONTAINER_NAME:-}" ] && docker_args+=(--name "$CONTAINER_NAME")
     append_common_docker_args docker_args
     docker "${docker_args[@]}" "$IMAGE" "$@"
 }
@@ -159,23 +161,34 @@ cmd_agent_cc() {
 
 cmd_agent_cc_tmux() {
     local claude_cmd
-    local inner_cmd
+    local escaped_claude_cmd
     claude_cmd="$(build_claude_cmd "$@")"
-    inner_cmd="if tmux has-session -t claude 2>/dev/null; then exec tmux attach-session -t claude; else exec tmux new-session -s claude \"${claude_cmd}\"; fi"
-    run_docker bash -lc "$inner_cmd"
+    printf -v escaped_claude_cmd '%q' "$claude_cmd"
+    run_docker bash -lc "export CLAUDE_CMD=${escaped_claude_cmd}; mkdir -p \"\$XDG_RUNTIME_DIR\" && chmod 700 \"\$XDG_RUNTIME_DIR\" && exec shpool attach -f -c \"\$CLAUDE_CMD\" claude"
 }
 
 cmd_agent_cc_web() {
     local claude_cmd
-    local inner_cmd
+    local wrapped_claude_cmd
+    local escaped_claude_cmd
+    local escaped_workspace
+    local wrapper
     local container_id
+    local container_name
+
+    container_name="${CONTAINER_NAME:-agent-cc-web-$(date +%s)}"
+    CONTAINER_NAME="$container_name"
 
     claude_cmd="$(build_claude_cmd "$@")"
-    inner_cmd="if ! tmux has-session -t claude 2>/dev/null; then tmux new-session -d -s claude \"${claude_cmd}\"; fi && exec /usr/local/bin/ttyd -p ${TTY_PORT} -W tmux attach-session -t claude"
+    wrapped_claude_cmd="bash -lc $(printf '%q' ". /tmp/agent-env.sh && exec $claude_cmd")"
+    printf -v escaped_claude_cmd '%q' "$wrapped_claude_cmd"
+    printf -v escaped_workspace '%q' "$AGENT_WORKSPACE"
+    wrapper="/tmp/agent-cc-web-shpool"
 
-    container_id="$(run_docker_detached bash -lc "$inner_cmd")"
+    container_id="$(run_docker_detached bash -lc "export CLAUDE_CMD=${escaped_claude_cmd}; export AGENT_WORKSPACE=${escaped_workspace}; export TERM=\"\${TERM:-xterm-256color}\"; export COLORTERM=\"\${COLORTERM:-truecolor}\"; export FORCE_COLOR=\"\${FORCE_COLOR:-3}\"; mkdir -p \"\$XDG_RUNTIME_DIR\" && chmod 700 \"\$XDG_RUNTIME_DIR\" && (umask 077; export -p > /tmp/agent-env.sh) && shpool attach -b -f --dir \"\$AGENT_WORKSPACE\" -c \"\$CLAUDE_CMD\" claude && for i in \$(seq 1 50); do shpool list >/dev/null 2>&1 && break; sleep 0.1; done && printf '%s\\n' '#!/bin/bash' 'exec shpool attach -f claude' > ${wrapper} && chmod +x ${wrapper} && exec /usr/local/bin/ttyd -p ${TTY_PORT} -W ${wrapper}")"
     echo "${container_id}"
     echo "agent-cc-web started: http://localhost:${TTY_PORT}"
+    echo "container name: ${container_name}"
 }
 
 cmd_add() {

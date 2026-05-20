@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Agent Go Runner</title>
+    <script defer src="/alpine.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f0f; color: #e0e0e0; }
+
+        .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; transition: grid-template-columns 0.18s ease; }
+        .app.collapsed { grid-template-columns: 44px 1fr; }
+
+        /* Sidebar */
+        .sidebar { background: #1a1a2e; border-right: 1px solid #2a2a3e; display: flex; flex-direction: column; overflow: hidden; }
+        .sidebar-header {
+            padding: 14px 16px; border-bottom: 1px solid #2a2a3e;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .sidebar-header h1 { font-size: 16px; font-weight: 600; color: #fff; flex: 1; white-space: nowrap; overflow: hidden; }
+        .btn-toggle, .btn-new {
+            background: transparent; border: 1px solid #3a3a5e; color: #ccc;
+            padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 13px;
+        }
+        .btn-toggle:hover, .btn-new:hover { background: #2a2a3e; color: #fff; }
+        .btn-new { background: #6c5ce7; border-color: #6c5ce7; color: #fff; }
+        .btn-new:hover { background: #5a4bd1; }
+
+        .collapsed .sidebar-header h1,
+        .collapsed .agent-list,
+        .collapsed .agent-info,
+        .collapsed .agent-actions { display: none; }
+        .collapsed .sidebar-header { padding: 10px 4px; flex-direction: column; }
+        .collapsed .btn-new { padding: 4px 6px; font-size: 12px; }
+
+        .agent-list { flex: 1; overflow-y: auto; padding: 6px; }
+        .agent-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
+            transition: background 0.15s;
+            gap: 6px;
+        }
+        .agent-item:hover { background: #2a2a3e; }
+        .agent-item.active { background: #3a3a5e; }
+        .agent-info { flex: 1; min-width: 0; }
+        .agent-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .agent-meta { font-size: 11px; color: #888; margin-top: 2px; }
+        .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; }
+        .status-dot.running { background: #00b894; }
+        .status-dot.exited { background: #e17055; }
+        .status-dot.created { background: #fdcb6e; }
+        .status-dot.restarting { background: #74b9ff; }
+        .status-dot.unknown { background: #636e72; }
+
+        .agent-actions { display: flex; gap: 2px; }
+        .icon-btn {
+            background: transparent; border: none; color: #888;
+            cursor: pointer; padding: 4px 6px; border-radius: 4px; font-size: 13px;
+        }
+        .icon-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .icon-btn.danger:hover { background: #e17055; color: #fff; }
+
+        .empty-sidebar { padding: 40px 20px; text-align: center; color: #666; font-size: 13px; }
+
+        /* Main panel */
+        .main-panel { display: flex; flex-direction: column; background: #0f0f0f; min-width: 0; }
+        .terminal-header {
+            padding: 10px 16px; border-bottom: 1px solid #2a2a3e;
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 13px; color: #aaa;
+            gap: 12px;
+        }
+        .terminal-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+        .terminal-title .name { color: #fff; font-weight: 500; }
+        .terminal-title .badge {
+            background: #2a2a3e; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #ccc;
+        }
+        .terminal-actions { display: flex; gap: 6px; }
+        .terminal-actions button {
+            background: #2a2a3e; border: 1px solid #3a3a5e; color: #ccc;
+            padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+        }
+        .terminal-actions button:hover { background: #3a3a5e; color: #fff; }
+        .terminal-container { flex: 1; position: relative; }
+        .terminal-container iframe { width: 100%; height: 100%; border: none; }
+        .empty-state {
+            display: flex; align-items: center; justify-content: center; height: 100%;
+            color: #555; font-size: 15px;
+        }
+
+        /* Agent details */
+        .details {
+            border-bottom: 1px solid #2a2a3e; background: #131326;
+            padding: 8px 16px; font-size: 12px;
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px;
+            color: #bbb;
+            transition: max-height 0.18s ease;
+            overflow: hidden;
+        }
+        .details.collapsed { display: none; }
+        .details .row-line { display: flex; gap: 6px; min-width: 0; }
+        .details .k { color: #888; flex: 0 0 110px; }
+        .details .v { color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .details .v.muted { color: #777; font-style: italic; }
+        .details-toggle { color: #888; cursor: pointer; user-select: none; font-size: 12px; }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+            display: flex; align-items: center; justify-content: center; z-index: 100;
+        }
+        .modal {
+            background: #1a1a2e; border: 1px solid #2a2a3e; border-radius: 10px;
+            width: min(520px, 92vw); max-height: 92vh; overflow-y: auto;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        }
+        .modal-header { padding: 16px 20px; border-bottom: 1px solid #2a2a3e; display: flex; align-items: center; justify-content: space-between; }
+        .modal-header h2 { font-size: 16px; color: #fff; font-weight: 600; }
+        .modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+        .modal-footer { padding: 12px 20px 16px; display: flex; justify-content: flex-end; gap: 8px; }
+        .field label { display: block; font-size: 12px; color: #aaa; margin-bottom: 4px; }
+        .field input, .field select, .field textarea {
+            width: 100%; padding: 8px 10px; border-radius: 6px;
+            border: 1px solid #3a3a5e; background: #0f0f1a; color: #e0e0e0;
+            font-size: 13px; outline: none; font-family: inherit;
+        }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color: #6c5ce7; }
+        .field .hint { font-size: 11px; color: #666; margin-top: 4px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .btn-primary {
+            background: #6c5ce7; color: #fff; border: none; padding: 8px 16px;
+            border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500;
+        }
+        .btn-primary:hover { background: #5a4bd1; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary {
+            background: transparent; color: #ccc; border: 1px solid #3a3a5e;
+            padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;
+        }
+        .btn-secondary:hover { background: #2a2a3e; color: #fff; }
+
+        /* Scrollbar */
+        .agent-list::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 6px; }
+        .agent-list::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb { background: #3a3a5e; border-radius: 3px; }
+    </style>
+</head>
+<body>
+<div class="app" :class="{ collapsed: collapsed }" x-data="agentApp()">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <button class="btn-toggle" @click="collapsed = !collapsed" :title="collapsed ? 'Expand' : 'Collapse'">
+                <span x-text="collapsed ? '»' : '«'"></span>
+            </button>
+            <h1 x-show="!collapsed">Agent Runner</h1>
+            <button class="btn-new" @click="openCreate()" title="Create agent">+</button>
+        </div>
+        <div class="agent-list">
+            <template x-if="agents.length === 0">
+                <div class="empty-sidebar">No agents yet.<br>Click + to create one.</div>
+            </template>
+            <template x-for="agent in agents" :key="agent.id">
+                <div class="agent-item" :class="{ active: selectedId === agent.id }"
+                     @click="selectAgent(agent)">
+                    <div class="agent-info">
+                        <div class="agent-name" x-text="agent.name"></div>
+                        <div class="agent-meta">
+                            <span class="status-dot" :class="agent.status"></span>
+                            <span x-text="agent.status"></span>
+                            <template x-if="agent.variant">
+                                <span> · <span x-text="agent.variant"></span></span>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="agent-actions">
+                        <button class="icon-btn" @click.stop="openEdit(agent)" title="Edit config">⚙</button>
+                        <button class="icon-btn" @click.stop="restartAgent(agent)" title="Restart">↻</button>
+                        <button class="icon-btn danger" @click.stop="deleteAgent(agent.id)" title="Delete">✕</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </aside>
+
+    <!-- Main panel -->
+    <main class="main-panel">
+        <template x-if="selectedAgent">
+            <div style="display: flex; flex-direction: column; height: 100%;">
+                <div class="terminal-header">
+                    <div class="terminal-title">
+                        <span class="name" x-text="selectedAgent.name"></span>
+                        <span class="badge" x-text="selectedAgent.status"></span>
+                        <template x-if="selectedAgent.variant">
+                            <span class="badge" x-text="selectedAgent.variant"></span>
+                        </template>
+                        <template x-if="selectedAgent.ttydPort">
+                            <span class="badge" x-text="':' + selectedAgent.ttydPort"></span>
+                        </template>
+                        <span class="details-toggle" @click="detailsOpen = !detailsOpen"
+                              x-text="detailsOpen ? '▾ details' : '▸ details'"></span>
+                    </div>
+                    <div class="terminal-actions">
+                        <button @click="openEdit(selectedAgent)">Edit</button>
+                        <button @click="restartAgent(selectedAgent)">Restart</button>
+                        <button @click="deleteAgent(selectedAgent.id)">Delete</button>
+                    </div>
+                </div>
+                <div class="details" :class="{ collapsed: !detailsOpen }">
+                    <div class="row-line"><span class="k">Image</span><span class="v" x-text="selectedAgent.image || '—'"></span></div>
+                    <div class="row-line"><span class="k">AGENT_ID</span><span class="v" x-text="selectedAgent.agentId || '—'"></span></div>
+                    <div class="row-line"><span class="k">Project ID</span><span class="v" x-text="selectedAgent.projectId || '—'"></span></div>
+                    <div class="row-line"><span class="k">Workspace ID</span><span class="v" x-text="selectedAgent.workspaceId || '(none)'"></span></div>
+                    <div class="row-line"><span class="k">Container -w</span><span class="v" x-text="containerWorkdir(selectedAgent)"></span></div>
+                    <div class="row-line"><span class="k">PROJECT_HOME</span><span class="v" x-text="selectedAgent.projectHome || '—'"></span></div>
+                    <div class="row-line"><span class="k">CLAUDE_HOME</span><span class="v" x-text="selectedAgent.claudeHome || '—'"></span></div>
+                    <div class="row-line"><span class="k">CODEX_HOME</span><span class="v" x-text="selectedAgent.codexHome || '—'"></span></div>
+                    <div class="row-line"><span class="k">AGENTS_HOME</span><span class="v" x-text="selectedAgent.agentsHome || '—'"></span></div>
+                    <div class="row-line"><span class="k">AGENTS_HUB</span><span class="v" x-text="selectedAgent.agentsHub || '—'"></span></div>
+                    <div class="row-line"><span class="k">Claude args</span><span class="v" x-text="(selectedAgent.claudeArgs || []).join(' ') || '(default)'"></span></div>
+                    <div class="row-line"><span class="k">Auth override</span><span class="v" :class="{ muted: !selectedAgent.hasAuthOverride }" x-text="selectedAgent.hasAuthOverride ? 'yes' : 'no (runner default)'"></span></div>
+                    <div class="row-line"><span class="k">Base URL ovr</span><span class="v" :class="{ muted: !selectedAgent.hasBaseOverride }" x-text="selectedAgent.hasBaseOverride ? 'yes' : 'no (runner default)'"></span></div>
+                </div>
+                <div class="terminal-container">
+                    <iframe :src="selectedAgent.ttydUrl" :key="iframeKey"></iframe>
+                </div>
+            </div>
+        </template>
+        <template x-if="!selectedAgent">
+            <div class="empty-state">Select or create an agent</div>
+        </template>
+    </main>
+
+    <!-- Create / edit modal -->
+    <template x-if="modalOpen">
+        <div class="modal-backdrop" @click.self="closeModal()">
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 x-text="modalMode === 'edit' ? 'Edit Agent' : 'Create Agent'"></h2>
+                    <button class="icon-btn" @click="closeModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="field">
+                        <label>Name</label>
+                        <input type="text" x-model="form.name" placeholder="auto-generated if empty"
+                               :disabled="modalMode === 'edit'" />
+                        <div class="hint" x-show="modalMode === 'edit'">Name can't be changed.</div>
+                    </div>
+                    <div class="row">
+                        <div class="field">
+                            <label>Image variant</label>
+                            <select x-model="form.variant">
+                                <template x-for="v in variants" :key="v">
+                                    <option :value="v" x-text="v"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>AGENT_ID</label>
+                            <input type="text" x-model="form.agentId"
+                                   :placeholder="cfg.agentId || 'default'" />
+                            <div class="hint">Sets <code>AGENT_ID</code> env in the container. Blank = runner default (<code x-text="cfg.agentId || 'default'"></code>).</div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="field">
+                            <label>Project ID</label>
+                            <input type="text" x-model="form.projectId" placeholder="defaults to host path" />
+                        </div>
+                        <div class="field">
+                            <label>Workspace ID</label>
+                            <input type="text" x-model="form.workspaceId"
+                                   placeholder="optional; narrows container -w to /workspace/${PROJECT_ID}/${WORKSPACE_ID}" />
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label>Claude args</label>
+                        <input type="text" x-model="form.claudeArgsText"
+                               placeholder="e.g. --resume sessid" />
+                        <div class="hint">Appended to <code>claude --dangerously-skip-permissions --allowedTools Edit,Write,Bash …</code>. Whitespace separated.</div>
+                    </div>
+                    <div class="field">
+                        <label>ANTHROPIC_AUTH_TOKEN (override)</label>
+                        <input type="password" x-model="form.anthropicAuthToken"
+                               :placeholder="cfg.hasAuthDefault ? 'leave blank — runner default in use' : 'leave blank — no default configured'"
+                               autocomplete="off" />
+                    </div>
+                    <div class="field">
+                        <label>ANTHROPIC_BASE_URL (override)</label>
+                        <input type="text" x-model="form.anthropicBaseUrl"
+                               :placeholder="cfg.anthropicBaseUrl || 'leave blank — use SDK default'" />
+                    </div>
+                    <div class="field">
+                        <label style="cursor: pointer;" @click="advancedOpen = !advancedOpen">
+                            <span x-text="advancedOpen ? '▾' : '▸'"></span> Host path overrides
+                        </label>
+                        <div class="hint">Leave blank to use the default shown under each box.</div>
+                    </div>
+                    <template x-if="advancedOpen">
+                        <div style="display: flex; flex-direction: column; gap: 12px;">
+                            <div class="field">
+                                <label>PROJECT_HOME (host)</label>
+                                <input type="text" x-model="form.projectHome" :placeholder="defaultProjectHome()" />
+                                <div class="hint">Default: <code x-text="defaultProjectHome()"></code> &nbsp;→&nbsp; mounts to <code x-text="'/workspace/' + (form.projectId || '${PROJECT_ID}')"></code></div>
+                            </div>
+                            <div class="row">
+                                <div class="field">
+                                    <label>CLAUDE_HOME (host)</label>
+                                    <input type="text" x-model="form.claudeHome" :placeholder="defaultClaudeHome()" />
+                                    <div class="hint">Default: <code x-text="defaultClaudeHome()"></code></div>
+                                </div>
+                                <div class="field">
+                                    <label>CODEX_HOME (host)</label>
+                                    <input type="text" x-model="form.codexHome" :placeholder="defaultCodexHome()" />
+                                    <div class="hint">Default: <code x-text="defaultCodexHome()"></code></div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="field">
+                                    <label>AGENTS_HOME (host)</label>
+                                    <input type="text" x-model="form.agentsHome" :placeholder="defaultAgentsHome()" />
+                                    <div class="hint">Default: <code x-text="defaultAgentsHome()"></code></div>
+                                </div>
+                                <div class="field">
+                                    <label>AGENTS_HUB (host)</label>
+                                    <input type="text" x-model="form.agentsHub" :placeholder="defaultAgentsHub()" />
+                                    <div class="hint">Default: <code x-text="defaultAgentsHub()"></code></div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" @click="closeModal()">Cancel</button>
+                    <button class="btn-primary" @click="submitModal()" :disabled="submitting">
+                        <span x-text="submitting ? '...' : (modalMode === 'edit' ? 'Save & rebuild' : 'Create')"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+</div>
+
+<script>
+function agentApp() {
+    return {
+        agents: [],
+        selectedId: null,
+        selectedAgent: null,
+        iframeKey: 0,
+        collapsed: false,
+        refreshTimer: null,
+
+        cfg: {
+            hostHome: '',
+            agentId: 'default',
+            projectRoot: '/data/work',
+            projectHome: '',
+            claudeHome: '',
+            codexHome: '',
+            agentsHome: '',
+            agentsHub: '',
+            imageRegistry: '',
+            imageTag: 'latest',
+            hasAuthDefault: false,
+            hasBaseUrlDefault: false,
+            anthropicBaseUrl: '',
+        },
+
+        variants: ['default', 'java8', 'java17', 'java21', 'java25', 'go', 'rust'],
+
+        modalOpen: false,
+        modalMode: 'create',
+        submitting: false,
+        advancedOpen: false,
+        detailsOpen: false,
+        form: {
+            id: null,
+            name: '',
+            agentId: '',
+            variant: 'default',
+            projectId: '',
+            workspaceId: '',
+            projectHome: '',
+            claudeHome: '',
+            codexHome: '',
+            agentsHome: '',
+            agentsHub: '',
+            claudeArgsText: '',
+            anthropicAuthToken: '',
+            anthropicBaseUrl: '',
+        },
+
+        blankForm() {
+            return {
+                id: null,
+                name: '',
+                agentId: '',
+                variant: 'default',
+                projectId: '',
+                workspaceId: '',
+                projectHome: '',
+                claudeHome: '',
+                codexHome: '',
+                agentsHome: '',
+                agentsHub: '',
+                claudeArgsText: '',
+                anthropicAuthToken: '',
+                anthropicBaseUrl: '',
+            };
+        },
+
+        async init() {
+            this.form = this.blankForm();
+            await this.loadConfig();
+            await this.refreshAgents();
+            this.refreshTimer = setInterval(() => this.refreshAgents(), 5000);
+        },
+
+        async loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    this.cfg = { ...this.cfg, ...data };
+                }
+            } catch (e) {
+                console.error('load config error:', e);
+            }
+        },
+
+        defaultProjectHome() {
+            if (this.cfg.projectHome) return this.cfg.projectHome;
+            const pid = (this.form.projectId || '').trim() || '${PROJECT_ID}';
+            return (this.cfg.projectRoot || '/data/work') + '/' + pid;
+        },
+        defaultClaudeHome() {
+            return this.cfg.claudeHome || ((this.cfg.hostHome || '~') + '/.claude');
+        },
+        defaultCodexHome() {
+            return this.cfg.codexHome || ((this.cfg.hostHome || '~') + '/.codex');
+        },
+        defaultAgentsHome() {
+            return this.cfg.agentsHome || ((this.cfg.hostHome || '~') + '/.agents');
+        },
+        defaultAgentsHub() {
+            return this.cfg.agentsHub || ((this.cfg.hostHome || '~') + '/.agents-hub');
+        },
+
+        async refreshAgents() {
+            try {
+                const resp = await fetch('/api/agents');
+                const data = await resp.json();
+                this.agents = data.agents || [];
+                if (this.selectedId) {
+                    const found = this.agents.find(a => a.id === this.selectedId);
+                    if (found) {
+                        // preserve iframe by not reassigning if url unchanged
+                        if (!this.selectedAgent || this.selectedAgent.ttydUrl !== found.ttydUrl) {
+                            this.selectedAgent = found;
+                        } else {
+                            this.selectedAgent = { ...found, ttydUrl: this.selectedAgent.ttydUrl };
+                        }
+                    } else {
+                        this.selectedId = null;
+                        this.selectedAgent = null;
+                    }
+                }
+            } catch (e) {
+                console.error('refresh error:', e);
+            }
+        },
+
+        selectAgent(agent) {
+            this.selectedId = agent.id;
+            this.selectedAgent = agent;
+            this.iframeKey++;
+        },
+
+        containerWorkdir(agent) {
+            if (!agent || !agent.projectId) return '—';
+            const base = '/workspace/' + agent.projectId;
+            return agent.workspaceId ? base + '/' + agent.workspaceId : base;
+        },
+
+        openCreate() {
+            this.form = this.blankForm();
+            this.advancedOpen = true;
+            this.modalMode = 'create';
+            this.modalOpen = true;
+        },
+
+        openEdit(agent) {
+            this.form = {
+                id: agent.id,
+                name: agent.name || '',
+                agentId: agent.agentId || '',
+                variant: agent.variant || 'default',
+                projectId: agent.projectId || '',
+                workspaceId: agent.workspaceId || '',
+                projectHome: agent.projectHome || '',
+                claudeHome: agent.claudeHome || '',
+                codexHome: agent.codexHome || '',
+                agentsHome: agent.agentsHome || '',
+                agentsHub: agent.agentsHub || '',
+                claudeArgsText: (agent.claudeArgs || []).join(' '),
+                anthropicAuthToken: '',
+                anthropicBaseUrl: '',
+            };
+            this.advancedOpen = true;
+            this.modalMode = 'edit';
+            this.modalOpen = true;
+        },
+
+        closeModal() {
+            if (this.submitting) return;
+            this.modalOpen = false;
+        },
+
+        buildPayload() {
+            const claudeArgs = (this.form.claudeArgsText || '')
+                .split(/\s+/)
+                .map(s => s.trim())
+                .filter(Boolean);
+            const payload = {
+                variant: this.form.variant === 'default' ? '' : this.form.variant,
+                agentId: this.form.agentId.trim(),
+                projectId: this.form.projectId.trim(),
+                workspaceId: this.form.workspaceId.trim(),
+                projectHome: this.form.projectHome.trim(),
+                claudeHome: this.form.claudeHome.trim(),
+                codexHome: this.form.codexHome.trim(),
+                agentsHome: this.form.agentsHome.trim(),
+                agentsHub: this.form.agentsHub.trim(),
+                claudeArgs,
+            };
+            if (this.form.name.trim()) payload.name = this.form.name.trim();
+            if (this.form.anthropicAuthToken) payload.anthropicAuthToken = this.form.anthropicAuthToken;
+            if (this.form.anthropicBaseUrl) payload.anthropicBaseUrl = this.form.anthropicBaseUrl.trim();
+            return payload;
+        },
+
+        async submitModal() {
+            this.submitting = true;
+            const payload = this.buildPayload();
+            try {
+                let resp;
+                if (this.modalMode === 'edit') {
+                    resp = await fetch('/api/agents/' + this.form.id, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                } else {
+                    resp = await fetch('/api/agents', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    alert(err.error || ('Request failed: ' + resp.status));
+                    return;
+                }
+                const result = await resp.json();
+                this.modalOpen = false;
+                await this.refreshAgents();
+                const fresh = this.agents.find(a => a.id === result.id) || result;
+                if (fresh) this.selectAgent(fresh);
+            } catch (e) {
+                console.error(e);
+                alert('Network error');
+            } finally {
+                this.submitting = false;
+            }
+        },
+
+        async restartAgent(agent) {
+            if (!confirm('Restart agent "' + agent.name + '"? Existing claude session will be killed.')) return;
+            try {
+                const resp = await fetch('/api/agents/' + agent.id + '/restart', { method: 'POST' });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    alert(err.error || 'Restart failed');
+                    return;
+                }
+                await this.refreshAgents();
+                this.iframeKey++;
+            } catch (e) {
+                alert('Network error');
+            }
+        },
+
+        async deleteAgent(id) {
+            if (!confirm('Delete this agent? The container and its node_home volume will be removed.')) return;
+            try {
+                await fetch('/api/agents/' + id, { method: 'DELETE' });
+                if (this.selectedId === id) {
+                    this.selectedId = null;
+                    this.selectedAgent = null;
+                }
+                await this.refreshAgents();
+            } catch (e) {
+                alert('Failed to delete agent');
+            }
+        },
+    };
+}
+</script>
+</body>
+</html>

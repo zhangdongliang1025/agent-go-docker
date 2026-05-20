@@ -23,7 +23,7 @@ ENV JAVA_HOME="/usr/local/java"
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # ===== Maven =====
-ARG MAVEN_VERSION=3.9.15
+ARG MAVEN_VERSION=3.9.16
 RUN curl -fsSL --http1.1 https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz \
     | tar -xz -C /usr/local --transform 's|apache-maven-[^/]*|maven|'
 ENV MAVEN_HOME="/usr/local/maven"

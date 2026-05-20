@@ -1,3 +1,26 @@
+ARG RUST_VERSION=1.85.0
+
+FROM rust:${RUST_VERSION}-slim AS shpool-builder
+
+ARG HTTP_PROXY
+ARG CARGO_REGISTRIES_CRATES_IO_INDEX=https://github.com/rust-lang/crates.io-index
+ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTP_PROXY}
+ENV PROXY_URL=${HTTP_PROXY}
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN cargo install --locked shpool --root /usr/local \
+    && chmod +x /usr/local/bin/shpool \
+    && rm -rf /usr/local/cargo/registry /usr/local/cargo/git
+
 FROM node:24-slim
 
 ARG USER_UID=1000
@@ -5,6 +28,7 @@ ARG USER_GID=1000
 ARG TARGETARCH
 ARG DOCKER_VERSION=27.1.0
 ARG TTYD_VERSION="1.7.7"
+ARG GIT_VERSION=2.49.1
 
 ARG HTTP_PROXY
 ENV HTTP_PROXY=${HTTP_PROXY}
@@ -17,7 +41,6 @@ ENV SHELL=/bin/bash
 RUN  apt-get update && apt-get install -y \
     curl \
     wget \
-    tmux \
     vim \
     neovim \
     ripgrep \
@@ -31,20 +54,21 @@ RUN  apt-get update && apt-get install -y \
     sudo \
     tzdata \
     locales \
+    zlib1g-dev \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    libexpat1-dev \
+    gettext \
+    tcl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN . /etc/os-release \
-    && if [ "${VERSION_CODENAME}" = "bookworm" ]; then \
-         echo "deb http://deb.debian.org/debian testing main" > /etc/apt/sources.list.d/testing.list \
-         && printf 'Package: *\nPin: release a=testing\nPin-Priority: 100\n' > /etc/apt/preferences.d/testing; \
-       fi \
-    && apt-get update \
-    && if [ "${VERSION_CODENAME}" = "bookworm" ]; then \
-         apt-get install -y -t testing git; \
-       else \
-         apt-get install -y git; \
-       fi \
-    && rm -f /etc/apt/sources.list.d/testing.list /etc/apt/preferences.d/testing
+RUN curl -fsSL --http1.1 "https://www.kernel.org/pub/software/scm/git/git-${GIT_VERSION}.tar.gz" \
+    -o /tmp/git.tar.gz \
+    && tar -xzf /tmp/git.tar.gz -C /tmp \
+    && make -C "/tmp/git-${GIT_VERSION}" prefix=/usr/local all \
+    && make -C "/tmp/git-${GIT_VERSION}" prefix=/usr/local install \
+    && rm -rf "/tmp/git-${GIT_VERSION}" /tmp/git.tar.gz
+
 
 RUN ARCH=$(uname -m) && \
     case ${ARCH} in \
@@ -78,6 +102,8 @@ RUN curl -fsSL --http1.1 "https://download.docker.com/linux/static/stable/$(unam
 
 RUN groupadd --gid 999 docker && usermod -aG docker node
 
+COPY --from=shpool-builder /usr/local/bin/shpool /usr/local/bin/shpool
+
 # ===== 安装 Claude Code =====
 RUN npm install -g @anthropic-ai/claude-code
 
@@ -97,7 +123,6 @@ ENV HTTPS_PROXY=
 ENV PROXY_URL=
 
 COPY entrypoint.sh /entrypoint.sh
-COPY .tmux.conf /home/node/.tmux.conf
 
 # 以 root 创建 node 用户的配置文件，运行时 entrypoint 会修正属主
 WORKDIR /home/node
