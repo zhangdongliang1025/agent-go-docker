@@ -1,31 +1,31 @@
 # agent-go-docker
 
-用于启动 Claude Code 容器环境的 Docker 镜像、本地启动脚本（`agent-go`）以及 HTTP runner 服务（`runner/`）。
+Docker images for launching Claude Code container environments, a local startup script (`agent-go`), and an HTTP runner service (`runner/`).
 
-## 目录结构
+## Directory Structure
 
-- `Dockerfile` / `Dockerfile.<variant>`：基础镜像与各语言变体镜像。
-- `agent-go`：本地启动脚本，负责安装 `agent-cc` / `agent-cc-web` / `agent-cc-tmux` 等命令。
-- `entrypoint.sh`：容器入口，处理 UID 映射、tmux/ttyd 启动等。
-- `runner/`：基于 Go 的 HTTP runner，提供按项目动态拉起 agent 容器的 API。
-- `build.sh`：一键构建并推送全部多架构镜像（含 runner）。
+- `Dockerfile` / `Dockerfile.<variant>`: Base image and language-variant images.
+- `agent-go`: Local startup script that installs `agent-cc` / `agent-cc-web` / `agent-cc-tmux` commands.
+- `entrypoint.sh`: Container entrypoint handling UID mapping, tmux/ttyd startup, etc.
+- `runner/`: Go-based HTTP runner providing APIs to dynamically spin up agent containers per project.
+- `build.sh`: One-click build and push for all multi-architecture images (including runner).
 
-## 构建说明
+## Build Instructions
 
-### 本地构建基础镜像
+### Build the Base Image Locally
 
 ```bash
 docker build -t agent-go-docker:latest -f Dockerfile .
 ```
 
-如需走代理拉取依赖，可通过 `--build-arg HTTP_PROXY=...` 传入，构建结束代理变量会被清空：
+To pull dependencies through a proxy, pass `--build-arg HTTP_PROXY=...`. The proxy variables are cleared at the end of the build:
 
 ```bash
 docker build --build-arg HTTP_PROXY=http://10.1.2.12:8118 \
   -t agent-go-docker:latest -f Dockerfile .
 ```
 
-### 构建语言变体镜像
+### Build Language Variant Images
 
 ```bash
 docker build -t agent-go-docker:java8  -f Dockerfile.java8 .
@@ -36,9 +36,9 @@ docker build -t agent-go-docker:go     -f Dockerfile.go .
 docker build -t agent-go-docker:rust   -f Dockerfile.rust .
 ```
 
-### 构建 runner 镜像
+### Build the Runner Image
 
-`runner/Dockerfile` 同样支持 `HTTP_PROXY` 构建参数，并内置 Docker CLI 以便调用宿主 docker socket：
+`runner/Dockerfile` also supports the `HTTP_PROXY` build arg and bundles Docker CLI for accessing the host Docker socket:
 
 ```bash
 cd runner
@@ -46,11 +46,11 @@ docker build --build-arg HTTP_PROXY=http://10.1.2.12:8118 \
   -t agent-run:latest .
 ```
 
-## 使用说明
+## Usage
 
-### 1. 安装启动脚本
+### 1. Install the Startup Script
 
-给脚本增加可执行权限，并安装命令链接：
+Make the script executable and install command symlinks:
 
 ```bash
 chmod +x agent-go
@@ -58,19 +58,19 @@ chmod +x agent-go
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-安装后可使用以下命令：
+After installation the following commands are available:
 
-- `agent-cc`：启动 Claude Code 交互式 CLI
-- `agent-cc-web`：启动 ttyd Web 终端 + tmux
-- `agent-cc-tmux`：在 tmux 中启动 Claude Code
+- `agent-cc`: Launch Claude Code interactive CLI
+- `agent-cc-web`: Launch ttyd web terminal + tmux
+- `agent-cc-tmux`: Launch Claude Code inside tmux
 
-### 2. 基本启动
+### 2. Basic Launch
 
 ```bash
 agent-cc
 ```
 
-### 3. 选择镜像变体
+### 3. Select an Image Variant
 
 ```bash
 agent-cc --java8
@@ -81,22 +81,22 @@ agent-cc --go
 agent-cc --rust
 ```
 
-其中 `--java` 等同于 `--java17`。
+`--java` is equivalent to `--java17`.
 
-### 4. 传递 Claude 参数
+### 4. Pass Claude Arguments
 
 ```bash
-agent-cc -p '帮我检查当前目录代码'
+agent-cc -p 'Help me review the code in the current directory'
 ```
 
-### 5. Web / tmux 模式
+### 5. Web / tmux Mode
 
 ```bash
 agent-cc-web
 agent-cc-tmux
 ```
 
-### 6. 常用环境变量
+### 6. Common Environment Variables
 
 ```bash
 export AGENT_ID=default
@@ -106,7 +106,7 @@ export AGENTS_HOME=$HOME/.agents
 export AGENTS_HUB=$HOME/.agents-hub
 ```
 
-### 7. 直接使用 Docker 运行
+### 7. Run Directly with Docker
 
 ```bash
 docker run -it --rm --network=host \
@@ -125,13 +125,13 @@ docker run -it --rm --network=host \
   claude
 ```
 
-## Runner 服务
+## Runner Service
 
-`runner/` 是一个 Go 编写的 HTTP 服务，监听 `:8080`，根据请求动态启动/管理 agent 容器，并按项目分配 `7681-7780` 范围的端口暴露 ttyd Web 终端。
+`runner/` is an HTTP service written in Go that listens on `:8080`. It dynamically starts and manages agent containers per request, assigning ttyd web terminal ports from the `7681-7780` range per project.
 
-### 启动
+### Startup
 
-推荐让 runner 与 agent 共用 host 网络，反代路径最短：
+It is recommended to run the runner on the host network so that agents share the same network, keeping the reverse proxy path short:
 
 ```bash
 docker run -d --name agent-run \
@@ -150,9 +150,9 @@ docker run -d --name agent-run \
   ghcr.io/mark0725/agent-run:latest
 ```
 
-agent 容器固定以 `--network=host` 启动，ttyd 直接绑在宿主 `7681-7780` 端口，无需 `-p` 映射。
+Agent containers are always started with `--network=host`. ttyd binds directly to host ports `7681-7780`, so no `-p` mapping is needed.
 
-如果 runner 必须运行在 bridge 网络上，需要让它能反代到宿主上的 agent ttyd：
+If the runner must run on a bridge network, ensure it can reverse-proxy to agent ttyd on the host:
 
 ```bash
 docker run -d --name agent-run \
@@ -163,33 +163,33 @@ docker run -d --name agent-run \
   ...
 ```
 
-### 鉴权
+### Authentication
 
-默认无认证，runner 端口暴露给可信网络即可。设置 `RUNNER_AUTH_TOKEN` 即可启用 token 鉴权：
+By default there is no authentication — expose the runner port only to trusted networks. Set `RUNNER_AUTH_TOKEN` to enable token-based authentication:
 
 ```bash
 -e "RUNNER_AUTH_TOKEN=$(openssl rand -hex 24)"
 ```
 
-启用后，所有 `/api/*`、`/proxy/*` 和 UI 都会鉴权。客户端可用以下任一方式：
+Once enabled, all `/api/*`, `/proxy/*`, and UI endpoints require authentication. Clients can authenticate via any of:
 
-- `Authorization: Bearer <token>` —— 适合 API/curl。
-- Cookie `runner_token=<token>` —— 浏览器持久访问。
-- URL `?token=<token>` —— 首次匹配成功后，runner 会回写 HttpOnly cookie，后续刷新和 iframe 内 ttyd 反代请求自动带 cookie。
+- `Authorization: Bearer <token>` — suitable for API/curl usage.
+- Cookie `runner_token=<token>` — for persistent browser access.
+- URL `?token=<token>` — on first successful match, the runner sets an HttpOnly cookie; subsequent page refreshes and iframe ttyd reverse-proxy requests carry the cookie automatically.
 
-`/health` 始终不鉴权，方便健康检查。
+`/health` is always unauthenticated for health checks.
 
-### 常用环境变量
+### Common Environment Variables
 
-- `LISTEN_ADDR`：HTTP 监听地址，默认 `:8080`。
-- `DOCKER_SOCK`：宿主 Docker socket，默认 `/var/run/docker.sock`。
-- `AGENT_ID`：注入到 agent 容器的默认 `AGENT_ID`，页面创建表单留空时使用，默认 `default`。
-- `HOST_UID` / `HOST_GID`：透传给 agent 容器的宿主 UID/GID，避免 agent 写出的工作区文件归 root；建议设为 `$(id -u)` / `$(id -g)`。
-- `AGENT_IMAGE_REGISTRY` / `AGENT_IMAGE_TAG`：agent 镜像与标签。
-- `RUNNER_PROXY_HOST`：runner 反代 agent ttyd 时使用的主机名，默认 `127.0.0.1`（要求 runner 与 agent 共享 host 网络）。bridge 网络场景设为 `host.docker.internal` 并配合 `--add-host=host.docker.internal:host-gateway`。
-- `RUNNER_AUTH_TOKEN`：访问 runner 页面和 API 的共享 token，默认空（无需认证）。详见上文「鉴权」。
-- `PROJECT_ROOT`：项目工作区根目录，默认 `/data/work`。
-- `PROJECT_HOME`：覆盖 `${PROJECT_ROOT}/${PROJECT_ID}`，强制使用同一个工作区目录。
-- `CLAUDE_HOME` / `CODEX_HOME` / `AGENTS_HOME` / `AGENTS_HUB`：宿主侧目录，挂载到 agent 容器的 `/home/node/.{claude,codex,agents,agents-hub}`。默认基于 runner 用户 `$HOME`。
-- `PORT_RANGE_START` / `PORT_RANGE_END`：可分配端口区间，默认 `7681-7780`。
-- `ANTHROPIC_AUTH_TOKEN`、`ANTHROPIC_BASE_URL`、`HTTP_PROXY`、`HTTPS_PROXY`、`PROXY_URL`：透传到 agent 容器。
+- `LISTEN_ADDR`: HTTP listen address, default `:8080`.
+- `DOCKER_SOCK`: Host Docker socket, default `/var/run/docker.sock`.
+- `AGENT_ID`: Default `AGENT_ID` injected into agent containers; used when the creation form field is left blank, default `default`.
+- `HOST_UID` / `HOST_GID`: Host UID/GID passed through to agent containers, preventing workspace files from being owned by root. Recommended: `$(id -u)` / `$(id -g)`.
+- `AGENT_IMAGE_REGISTRY` / `AGENT_IMAGE_TAG`: Agent image and tag.
+- `RUNNER_PROXY_HOST`: Hostname used when the runner reverse-proxies agent ttyd, default `127.0.0.1` (requires runner and agents to share the host network). For bridge networking, set to `host.docker.internal` and add `--add-host=host.docker.internal:host-gateway`.
+- `RUNNER_AUTH_TOKEN`: Shared token for accessing runner pages and APIs, default empty (no authentication). See "Authentication" above.
+- `PROJECT_ROOT`: Project workspace root directory, default `/data/work`.
+- `PROJECT_HOME`: Overrides `${PROJECT_ROOT}/${PROJECT_ID}`, forcing the use of a single workspace directory.
+- `CLAUDE_HOME` / `CODEX_HOME` / `AGENTS_HOME` / `AGENTS_HUB`: Host-side directories mounted into agent containers at `/home/node/.{claude,codex,agents,agents-hub}`. Defaults are based on the runner user's `$HOME`.
+- `PORT_RANGE_START` / `PORT_RANGE_END`: Assignable port range, default `7681-7780`.
+- `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `HTTP_PROXY`, `HTTPS_PROXY`, `PROXY_URL`: Passed through to agent containers.
