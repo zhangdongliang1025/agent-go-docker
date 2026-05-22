@@ -234,7 +234,8 @@
                     <div class="row-line"><span class="k">Base URL ovr</span><span class="v" :class="{ muted: !selectedAgent.hasBaseOverride }" x-text="selectedAgent.hasBaseOverride ? 'yes' : 'no (runner default)'"></span></div>
                 </div>
                 <div class="terminal-container">
-                    <iframe :src="selectedAgent.ttydUrl" :key="iframeKey"></iframe>
+                    <iframe :src="selectedAgent.ttydUrl" :key="iframeKey"
+                            @load="patchIframe($event)"></iframe>
                 </div>
             </div>
         </template>
@@ -514,6 +515,7 @@ function agentApp() {
                     if (found) {
                         // preserve iframe by not reassigning if url unchanged
                         if (!this.selectedAgent || this.selectedAgent.ttydUrl !== found.ttydUrl) {
+                            this.suppressBeforeUnload();
                             this.selectedAgent = found;
                         } else {
                             this.selectedAgent = { ...found, ttydUrl: this.selectedAgent.ttydUrl };
@@ -528,7 +530,28 @@ function agentApp() {
             }
         },
 
+        suppressBeforeUnload() {
+            const iframe = document.querySelector('.terminal-container iframe');
+            if (iframe && iframe.contentWindow) {
+                iframe.contentWindow.onbeforeunload = null;
+            }
+        },
+
+        patchIframe(event) {
+            const cw = event.target.contentWindow;
+            if (!cw) return;
+            // Clear any existing beforeunload handler
+            cw.onbeforeunload = null;
+            // Monkey-patch addEventListener to ignore beforeunload registrations
+            const orig = cw.addEventListener;
+            cw.addEventListener = function(type, fn, opts) {
+                if (type === 'beforeunload') return;
+                return orig.call(this, type, fn, opts);
+            };
+        },
+
         selectAgent(agent) {
+            this.suppressBeforeUnload();
             this.selectedId = agent.id;
             this.selectedAgent = agent;
             this.iframeKey++;
@@ -645,6 +668,7 @@ function agentApp() {
                     return;
                 }
                 await this.refreshAgents();
+                this.suppressBeforeUnload();
                 this.iframeKey++;
             } catch (e) {
                 alert('Network error');
@@ -656,6 +680,7 @@ function agentApp() {
             try {
                 await fetch('/api/agents/' + id, { method: 'DELETE' });
                 if (this.selectedId === id) {
+                    this.suppressBeforeUnload();
                     this.selectedId = null;
                     this.selectedAgent = null;
                 }
