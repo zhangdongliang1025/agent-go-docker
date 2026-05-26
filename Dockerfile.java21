@@ -30,6 +30,8 @@ ENV MAVEN_HOME="/usr/local/maven"
 ENV PATH="${MAVEN_HOME}/bin:${PATH}"
 ENV M2_HOME="/home/node/.m2"
 
+RUN printf 'export JAVA_HOME="/usr/local/java"\nexport MAVEN_HOME="/usr/local/maven"\nexport PATH="${JAVA_HOME}/bin:${MAVEN_HOME}/bin:${PATH}"\n' > /etc/profile.d/jvm.sh
+
 # Unset http proxy
 ENV HTTP_PROXY=
 ENV HTTPS_PROXY=
