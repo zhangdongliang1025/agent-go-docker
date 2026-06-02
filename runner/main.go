@@ -26,16 +26,11 @@ func main() {
 
 	cfg := config.Load()
 
-	ports := docker.NewPortAllocator(cfg.PortRangeStart, cfg.PortRangeEnd)
-	mgr, err := docker.NewManager(cfg, ports)
+	mgr, err := docker.NewManager(context.Background(), cfg)
 	if err != nil {
 		log.Fatalf("docker manager: %v", err)
 	}
 	defer mgr.Close()
-
-	if err := mgr.RecoverState(context.Background()); err != nil {
-		log.Printf("warning: failed to recover state: %v", err)
-	}
 
 	handler := api.NewHandler(mgr)
 	mux := http.NewServeMux()
@@ -62,7 +57,7 @@ func main() {
 
 	log.Printf("Agent Runner listening on %s", cfg.ListenAddr)
 	log.Printf("Agent image: %s", cfg.AgentImage)
-	log.Printf("Port range: %d-%d", cfg.PortRangeStart, cfg.PortRangeEnd)
+	log.Printf("Agent network: %s (runner must also be on it for proxy DNS to resolve)", docker.NetworkName)
 	if cfg.AuthToken != "" {
 		log.Printf("Auth: token required (Authorization / cookie / ?token=)")
 	} else {

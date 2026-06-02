@@ -126,15 +126,18 @@ docker run -it --rm --network=host \
 
 ## Runner Service
 
-`runner/` is an HTTP service written in Go that listens on `:8080`. It dynamically starts and manages agent containers per request, assigning ttyd web terminal ports from the `7681-7780` range per project.
+`runner/` is an HTTP service written in Go that listens on `:8080`. It dynamically starts and manages agent containers per request. All agent containers are attached to a user-defined bridge network called `agents-net`, which the runner creates on startup if it does not exist. Each agent's ttyd listens on a single fixed container port (7681); the port is **not** published to the host — every ttyd request is reverse-proxied by the runner over `agents-net`.
 
 ### Startup
 
-It is recommended to run the runner on the host network so that agents share the same network, keeping the reverse proxy path short:
+On startup the runner ensures `agents-net` exists (`docker network create agents-net` if missing) and then attaches every new agent to it. The runner container must also be on `agents-net` so its reverse-proxy can resolve agent IDs through Docker's embedded DNS:
 
 ```bash
+docker network create agents-net   # only if not already created by a previous runner start
+
 docker run -d --name agent-run \
-  --network=host \
+  --network=agents-net \
+  -p 8080:8080 \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /data/work:/data/work \
   -v ${HOME}/.agents-hub:/data/hub \
@@ -150,17 +153,12 @@ docker run -d --name agent-run \
   ghcr.io/mark0725/agent-run:latest
 ```
 
-Agent containers are always started with `--network=host`. ttyd binds directly to host ports `7681-7780`, so no `-p` mapping is needed.
+Because all ttyd traffic is reverse-proxied over `agents-net`, no host port range needs to be reserved for agents. The runner's own port (`8080` in the example) is the only one you need to publish.
 
-If the runner must run on a bridge network, ensure it can reverse-proxy to agent ttyd on the host:
+If the runner was started on a different network, you can attach it without restarting:
 
 ```bash
-docker run -d --name agent-run \
-  -p 8080:8080 \
-  --add-host=host.docker.internal:host-gateway \
-  -e "RUNNER_PROXY_HOST=host.docker.internal" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ...
+docker network connect agents-net agent-run
 ```
 
 ### Authentication
@@ -186,7 +184,6 @@ Once enabled, all `/api/*`, `/proxy/*`, and UI endpoints require authentication.
 - `AGENT_ID`: Default `AGENT_ID` injected into agent containers; used when the creation form field is left blank, default `default`.
 - `HOST_UID` / `HOST_GID`: Host UID/GID passed through to agent containers, preventing workspace files from being owned by root. Recommended: `$(id -u)` / `$(id -g)`.
 - `AGENT_IMAGE_REGISTRY` / `AGENT_IMAGE_TAG`: Agent image and tag.
-- `RUNNER_PROXY_HOST`: Hostname used when the runner reverse-proxies agent ttyd, default `127.0.0.1` (requires runner and agents to share the host network). For bridge networking, set to `host.docker.internal` and add `--add-host=host.docker.internal:host-gateway`.
 - `RUNNER_AUTH_TOKEN`: Shared token for accessing runner pages and APIs, default empty (no authentication). See "Authentication" above.
 - `PROJECT_ROOT`: Project workspace root directory, default `/data/work`.
 - `PROJECT_HOME`: Overrides `${PROJECT_ROOT}/${PROJECT_ID}`, forcing the use of a single workspace directory.
@@ -203,7 +200,6 @@ Once enabled, all `/api/*`, `/proxy/*`, and UI endpoints require authentication.
 
 Each agent container mounts `/data/work/{PROJECT_ID}/{WORKSPACE_ID}` as its working directory (`-w`). `WORKSPACE_ID` defaults to `main`; additional workspaces correspond to git worktrees within the same project.
 - `CLAUDE_HOME` / `CODEX_HOME` / `AGENTS_HOME` / `AGENTS_HUB`: Host-side directories mounted into agent containers at `/home/node/.{claude,codex,agents,agents-hub}`. Defaults are based on the runner user's `$HOME`.
-- `PORT_RANGE_START` / `PORT_RANGE_END`: Assignable port range, default `7681-7780`.
 - `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `HTTP_PROXY`, `HTTPS_PROXY`, `PROXY_URL`: Passed through to agent containers.
 
 ### Form Field Directory Sources

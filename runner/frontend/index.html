@@ -146,6 +146,19 @@
         }
         .btn-secondary:hover { background: #2a2a3e; color: #fff; }
 
+        /* Env var editor */
+        .env-list { display: flex; flex-direction: column; gap: 6px; }
+        .env-row { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; align-items: center; }
+        .env-row input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .env-row .icon-btn { padding: 4px 8px; }
+        .env-add {
+            background: transparent; color: #6c5ce7; border: 1px dashed #3a3a5e;
+            padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+            margin-top: 4px;
+        }
+        .env-add:hover { background: #2a2a3e; color: #fff; border-color: #6c5ce7; }
+        .env-row.invalid input { border-color: #e17055; }
+
         /* Scrollbar */
         .agent-list::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 6px; }
         .agent-list::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb { background: #3a3a5e; border-radius: 3px; }
@@ -212,9 +225,6 @@
                         <template x-if="selectedAgent.projectId">
                             <span class="badge" x-text="'project: ' + selectedAgent.projectId"></span>
                         </template>
-                        <template x-if="selectedAgent.ttydPort">
-                            <span class="badge" x-text="':' + selectedAgent.ttydPort"></span>
-                        </template>
                         <span class="details-toggle" @click="detailsOpen = !detailsOpen"
                               x-text="detailsOpen ? '▾ details' : '▸ details'"></span>
                     </div>
@@ -231,11 +241,13 @@
                     <div class="row-line"><span class="k">Worktree</span><span class="v" x-text="selectedAgent.workspaceId || '(none)'"></span></div>
                     <div class="row-line"><span class="k">Container -w</span><span class="v" x-text="containerWorkdir(selectedAgent)"></span></div>
                     <div class="row-line"><span class="k">PROJECT_HOME</span><span class="v" x-text="selectedAgent.projectHome || '—'"></span></div>
+                    <div class="row-line"><span class="k">CLAUDE_CONFIG</span><span class="v" x-text="selectedAgent.claudeConfig || '—'"></span></div>
                     <div class="row-line"><span class="k">CLAUDE_HOME</span><span class="v" x-text="selectedAgent.claudeHome || '—'"></span></div>
                     <div class="row-line"><span class="k">CODEX_HOME</span><span class="v" x-text="selectedAgent.codexHome || '—'"></span></div>
                     <div class="row-line"><span class="k">AGENTS_HOME</span><span class="v" x-text="selectedAgent.agentsHome || '—'"></span></div>
                     <div class="row-line"><span class="k">AGENTS_HUB</span><span class="v" x-text="selectedAgent.agentsHub || '—'"></span></div>
                     <div class="row-line"><span class="k">Claude args</span><span class="v" x-text="(selectedAgent.claudeArgs || []).join(' ') || '(default)'"></span></div>
+                    <div class="row-line"><span class="k">Extra env</span><span class="v" :class="{ muted: !(selectedAgent.extraEnv && selectedAgent.extraEnv.length) }" x-text="formatExtraEnv(selectedAgent.extraEnv)"></span></div>
                     <div class="row-line"><span class="k">Auth override</span><span class="v" :class="{ muted: !selectedAgent.hasAuthOverride }" x-text="selectedAgent.hasAuthOverride ? 'yes' : 'no (runner default)'"></span></div>
                     <div class="row-line"><span class="k">Base URL ovr</span><span class="v" :class="{ muted: !selectedAgent.hasBaseOverride }" x-text="selectedAgent.hasBaseOverride ? 'yes' : 'no (runner default)'"></span></div>
                 </div>
@@ -331,6 +343,27 @@
                                :placeholder="cfg.anthropicBaseUrl || 'leave blank — use SDK default'" />
                     </div>
                     <div class="field">
+                        <label>Extra container env vars</label>
+                        <div class="env-list">
+                            <template x-for="(entry, idx) in form.extraEnv" :key="idx">
+                                <div class="env-row" :class="{ invalid: entry._invalid }">
+                                    <input type="text" x-model="entry.key"
+                                           @input="entry._invalid = false"
+                                           placeholder="KEY" spellcheck="false"
+                                           autocomplete="off" />
+                                    <input type="text" x-model="entry.value"
+                                           @input="entry._invalid = false"
+                                           placeholder="value" spellcheck="false"
+                                           autocomplete="off" />
+                                    <button class="icon-btn danger" type="button"
+                                            @click="removeEnv(idx)" title="Remove">✕</button>
+                                </div>
+                            </template>
+                        </div>
+                        <button type="button" class="env-add" @click="addEnv()">+ Add variable</button>
+                        <div class="hint">Injected as <code>--env KEY=VALUE</code> on the container. Empty values are allowed. Entries with the same name as runner defaults (e.g. <code>ANTHROPIC_BASE_URL</code>) override the runner default for this agent.</div>
+                    </div>
+                    <div class="field">
                         <label style="cursor: pointer;" @click="advancedOpen = !advancedOpen">
                             <span x-text="advancedOpen ? '▾' : '▸'"></span> Host path overrides
                         </label>
@@ -343,28 +376,33 @@
                                 <input type="text" x-model="form.projectHome" :placeholder="defaultProjectHome()" />
                                 <div class="hint">Default: <code x-text="defaultProjectHome()"></code> &nbsp;→&nbsp; mounts to <code x-text="'/workspace/' + (form.projectId || '${PROJECT_ID}')"></code></div>
                             </div>
+                            <div class="field">
+                                <label>CLAUDE_CONFIG (host file)</label>
+                                <input type="text" x-model="form.claudeConfig" :placeholder="defaultClaudeConfig()" />
+                                <div class="hint">Default: <code x-text="defaultClaudeConfig()"></code> &nbsp;→&nbsp; mounts to <code>/home/node/.claude.json</code></div>
+                            </div>
                             <div class="row">
                                 <div class="field">
                                     <label>CLAUDE_HOME (host)</label>
                                     <input type="text" x-model="form.claudeHome" :placeholder="defaultClaudeHome()" />
-                                    <div class="hint">Default: <code x-text="defaultClaudeHome()"></code></div>
+                                    <div class="hint">Default: <code x-text="defaultClaudeHome()"></code> &nbsp;→&nbsp; mounts to <code>/home/node/.claude</code></div>
                                 </div>
                                 <div class="field">
                                     <label>CODEX_HOME (host)</label>
                                     <input type="text" x-model="form.codexHome" :placeholder="defaultCodexHome()" />
-                                    <div class="hint">Default: <code x-text="defaultCodexHome()"></code></div>
+                                    <div class="hint">Default: <code x-text="defaultCodexHome()"></code> &nbsp;→&nbsp; mounts to <code>/home/node/.codex</code></div>
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="field">
                                     <label>AGENTS_HOME (host)</label>
                                     <input type="text" x-model="form.agentsHome" :placeholder="defaultAgentsHome()" />
-                                    <div class="hint">Default: <code x-text="defaultAgentsHome()"></code></div>
+                                    <div class="hint">Default: <code x-text="defaultAgentsHome()"></code> &nbsp;→&nbsp; mounts to <code>/home/node/.agents</code></div>
                                 </div>
                                 <div class="field">
                                     <label>AGENTS_HUB (host)</label>
                                     <input type="text" x-model="form.agentsHub" :placeholder="defaultAgentsHub()" />
-                                    <div class="hint">Default: <code x-text="defaultAgentsHub()"></code></div>
+                                    <div class="hint">Default: <code x-text="defaultAgentsHub()"></code> &nbsp;→&nbsp; mounts to <code>/home/node/.agents-hub</code></div>
                                 </div>
                             </div>
                         </div>
@@ -401,6 +439,7 @@ function agentApp() {
             codexHome: '',
             agentsHome: '',
             agentsHub: '',
+            claudeConfig: '',
             imageRegistry: '',
             imageTag: 'latest',
             hasAuthDefault: false,
@@ -431,9 +470,11 @@ function agentApp() {
             codexHome: '',
             agentsHome: '',
             agentsHub: '',
+            claudeConfig: '',
             claudeArgsText: '',
             anthropicAuthToken: '',
             anthropicBaseUrl: '',
+            extraEnv: [],
         },
 
         blankForm() {
@@ -449,9 +490,11 @@ function agentApp() {
                 codexHome: '',
                 agentsHome: '',
                 agentsHub: '',
+                claudeConfig: '',
                 claudeArgsText: '',
                 anthropicAuthToken: '',
                 anthropicBaseUrl: '',
+                extraEnv: [],
             };
         },
 
@@ -459,6 +502,8 @@ function agentApp() {
             this.form = this.blankForm();
             await this.loadConfig();
             await Promise.all([this.refreshAgents(), this.fetchListOptions()]);
+            this.applyHashSelection();
+            window.addEventListener('hashchange', () => this.onHashChange());
             this.refreshTimer = setInterval(() => this.refreshAgents(), 5000);
         },
 
@@ -531,6 +576,23 @@ function agentApp() {
         defaultAgentsHub() {
             return this.cfg.agentsHub || ((this.cfg.hostHome || '~') + '/.agents-hub');
         },
+        defaultClaudeConfig() {
+            return this.cfg.claudeConfig || ((this.cfg.hostHome || '~') + '/.claude.json');
+        },
+
+        addEnv() {
+            this.form.extraEnv.push({ key: '', value: '', _invalid: false });
+        },
+        removeEnv(idx) {
+            this.form.extraEnv.splice(idx, 1);
+        },
+        formatExtraEnv(list) {
+            if (!list || list.length === 0) return '(none)';
+            return list.map(e => e.key + (e.value ? '=' + e.value : '=')).join(' · ');
+        },
+        envKeyValid(key) {
+            return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
+        },
 
         async refreshAgents() {
             try {
@@ -548,8 +610,10 @@ function agentApp() {
                             this.selectedAgent = { ...found, ttydUrl: this.selectedAgent.ttydUrl };
                         }
                     } else {
+                        this.suppressBeforeUnload();
                         this.selectedId = null;
                         this.selectedAgent = null;
+                        this.setHashId(null);
                     }
                 }
             } catch (e) {
@@ -583,6 +647,50 @@ function agentApp() {
             this.selectedAgent = agent;
             this.iframeLoading = true;
             this.iframeKey++;
+            this.setHashId(agent.id);
+        },
+
+        // ---- Hash router ----------------------------------------------------
+        // Selection is mirrored to window.location.hash as `#/agent/{id}` so
+        // that a browser refresh (or sharing a URL) restores the chosen
+        // agent. We use history.replaceState to avoid polluting back history
+        // for routine clicks; the hashchange listener only fires for genuine
+        // navigation (back/forward, manual hash edit, or programmatic
+        // location.hash assignment from outside).
+        parseHashId() {
+            const m = /^#\/agent\/([^/?#]+)$/.exec(window.location.hash);
+            return m ? m[1] : null;
+        },
+        setHashId(id) {
+            const target = id ? '#/agent/' + id : '';
+            if (window.location.hash === target) return;
+            const url = window.location.pathname + window.location.search + target;
+            history.replaceState(null, '', url);
+        },
+        applyHashSelection() {
+            const id = this.parseHashId();
+            if (!id) return;
+            const found = this.agents.find(a => a.id === id);
+            if (found) {
+                this.selectAgent(found);
+            } else {
+                // Hash points at an agent that no longer exists (deleted in
+                // another tab, server reset, etc.). Drop the stale id so the
+                // user is not stuck with a dead URL.
+                this.setHashId(null);
+            }
+        },
+        onHashChange() {
+            const id = this.parseHashId();
+            if (id === this.selectedId) return;
+            if (!id) {
+                this.suppressBeforeUnload();
+                this.selectedId = null;
+                this.selectedAgent = null;
+                return;
+            }
+            const found = this.agents.find(a => a.id === id);
+            if (found) this.selectAgent(found);
         },
 
         containerWorkdir(agent) {
@@ -612,9 +720,11 @@ function agentApp() {
                 codexHome: agent.codexHome || '',
                 agentsHome: agent.agentsHome || '',
                 agentsHub: agent.agentsHub || '',
+                claudeConfig: agent.claudeConfig || '',
                 claudeArgsText: (agent.claudeArgs || []).join(' '),
                 anthropicAuthToken: '',
                 anthropicBaseUrl: '',
+                extraEnv: (agent.extraEnv || []).map(e => ({ key: e.key, value: e.value, _invalid: false })),
             };
             this.fetchWorkspaces();
             this.advancedOpen = true;
@@ -632,6 +742,19 @@ function agentApp() {
                 .split(/\s+/)
                 .map(s => s.trim())
                 .filter(Boolean);
+            const extraEnv = [];
+            const seen = {};
+            for (const e of this.form.extraEnv) {
+                const key = (e.key || '').trim();
+                if (!key) continue;
+                if (!this.envKeyValid(key) || seen[key]) {
+                    e._invalid = true;
+                    throw new Error('Invalid or duplicate env var key: ' + JSON.stringify(e.key));
+                }
+                seen[key] = true;
+                e._invalid = false;
+                extraEnv.push({ key, value: e.value || '' });
+            }
             const payload = {
                 variant: this.form.variant === 'default' ? '' : this.form.variant,
                 agentId: this.form.agentId.trim(),
@@ -642,7 +765,9 @@ function agentApp() {
                 codexHome: this.form.codexHome.trim(),
                 agentsHome: this.form.agentsHome.trim(),
                 agentsHub: this.form.agentsHub.trim(),
+                claudeConfig: this.form.claudeConfig.trim(),
                 claudeArgs,
+                extraEnv,
             };
             if (this.form.name.trim()) payload.name = this.form.name.trim();
             if (this.form.anthropicAuthToken) payload.anthropicAuthToken = this.form.anthropicAuthToken;
@@ -652,7 +777,14 @@ function agentApp() {
 
         async submitModal() {
             this.submitting = true;
-            const payload = this.buildPayload();
+            let payload;
+            try {
+                payload = this.buildPayload();
+            } catch (e) {
+                alert(e.message || 'Invalid form');
+                this.submitting = false;
+                return;
+            }
             try {
                 let resp;
                 if (this.modalMode === 'edit') {
@@ -719,6 +851,7 @@ function agentApp() {
                     this.suppressBeforeUnload();
                     this.selectedId = null;
                     this.selectedAgent = null;
+                    this.setHashId(null);
                 }
                 await this.refreshAgents();
             } catch (e) {

@@ -2,6 +2,15 @@ package api
 
 import "time"
 
+// EnvVar is a single KEY=VALUE pair the user wants injected into the agent
+// container. Custom env vars are appended after the runner's own defaults
+// (HOST_UID, AGENT_ID, …), so a name collision will override the runner's
+// value inside the container.
+type EnvVar struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 type CreateAgentRequest struct {
 	Name               string   `json:"name"`
 	AgentID            string   `json:"agentId,omitempty"`
@@ -17,6 +26,7 @@ type CreateAgentRequest struct {
 	AnthropicAuthToken string   `json:"anthropicAuthToken,omitempty"`
 	AnthropicBaseURL   string   `json:"anthropicBaseUrl,omitempty"`
 	ClaudeArgs         []string `json:"claudeArgs,omitempty"`
+	ExtraEnv           []EnvVar `json:"extraEnv,omitempty"`
 }
 
 type AgentResponse struct {
@@ -24,7 +34,6 @@ type AgentResponse struct {
 	Name            string   `json:"name"`
 	AgentID         string   `json:"agentId,omitempty"`
 	Status          string   `json:"status"`
-	TTYDPort        int      `json:"ttydPort"`
 	TTYDURL         string   `json:"ttydUrl"`
 	CreatedAt       string   `json:"createdAt"`
 	Image           string   `json:"image"`
@@ -37,6 +46,7 @@ type AgentResponse struct {
 	AgentsHome      string   `json:"agentsHome,omitempty"`
 	AgentsHub       string   `json:"agentsHub,omitempty"`
 	ClaudeArgs      []string `json:"claudeArgs,omitempty"`
+	ExtraEnv        []EnvVar `json:"extraEnv,omitempty"`
 	HasAuthOverride bool     `json:"hasAuthOverride,omitempty"`
 	HasBaseOverride bool     `json:"hasBaseOverride,omitempty"`
 }
@@ -64,6 +74,7 @@ type ConfigResponse struct {
 	CodexHome          string `json:"codexHome,omitempty"`
 	AgentsHome         string `json:"agentsHome,omitempty"`
 	AgentsHub          string `json:"agentsHub,omitempty"`
+	ClaudeConfig       string `json:"claudeConfig,omitempty"`
 	ImageRegistry      string `json:"imageRegistry"`
 	ImageTag           string `json:"imageTag"`
 	HasAuthDefault     bool   `json:"hasAuthDefault,omitempty"`

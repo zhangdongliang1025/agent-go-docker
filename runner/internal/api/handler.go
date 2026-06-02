@@ -82,6 +82,10 @@ func reqToOpts(req CreateAgentRequest) docker.CreateAgentOpts {
 			cleaned = append(cleaned, a)
 		}
 	}
+	extraEnv := make([]docker.EnvVar, 0, len(req.ExtraEnv))
+	for _, e := range req.ExtraEnv {
+		extraEnv = append(extraEnv, docker.EnvVar{Key: e.Key, Value: e.Value})
+	}
 	return docker.CreateAgentOpts{
 		Name:               strings.TrimSpace(req.Name),
 		AgentID:            strings.TrimSpace(req.AgentID),
@@ -97,6 +101,7 @@ func reqToOpts(req CreateAgentRequest) docker.CreateAgentOpts {
 		AnthropicAuthToken: req.AnthropicAuthToken,
 		AnthropicBaseURL:   req.AnthropicBaseURL,
 		ClaudeArgs:         cleaned,
+		ExtraEnv:           extraEnv,
 	}
 }
 
@@ -158,6 +163,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		CodexHome:         cfg.CodexHome,
 		AgentsHome:        cfg.AgentsHome,
 		AgentsHub:         cfg.AgentsHub,
+		ClaudeConfig:      cfg.ClaudeConfig,
 		ImageRegistry:     cfg.ImageRegistry,
 		ImageTag:          cfg.ImageTag,
 		HasAuthDefault:    cfg.AnthropicAuthToken != "",
@@ -217,7 +223,7 @@ func (h *Handler) ProxyAgent() http.HandlerFunc {
 			return
 		}
 
-		target, _ := url.Parse(fmt.Sprintf("http://%s:%d", h.manager.Config().ProxyHost, agent.TTYDPort))
+		target, _ := url.Parse(fmt.Sprintf("http://%s:%d", agent.ID, docker.AgentTtydPort))
 
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		origDirector := proxy.Director
@@ -245,12 +251,11 @@ func (h *Handler) ProxyAgent() http.HandlerFunc {
 }
 
 func agentToResponse(a *docker.Agent) AgentResponse {
-	return AgentResponse{
+	resp := AgentResponse{
 		ID:              a.ID,
 		Name:            a.Name,
 		AgentID:         a.AgentID,
 		Status:          a.Status,
-		TTYDPort:        a.TTYDPort,
 		TTYDURL:         "/proxy/" + a.ID + "/",
 		CreatedAt:       formatTime(a.CreatedAt),
 		Image:           a.Image,
@@ -266,6 +271,14 @@ func agentToResponse(a *docker.Agent) AgentResponse {
 		HasAuthOverride: a.HasAuthOverride,
 		HasBaseOverride: a.HasBaseOverride,
 	}
+	if len(a.ExtraEnv) > 0 {
+		respEnv := make([]EnvVar, 0, len(a.ExtraEnv))
+		for _, e := range a.ExtraEnv {
+			respEnv = append(respEnv, EnvVar{Key: e.Key, Value: e.Value})
+		}
+		resp.ExtraEnv = respEnv
+	}
+	return resp
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {

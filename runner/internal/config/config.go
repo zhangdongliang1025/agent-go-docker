@@ -35,8 +35,13 @@ type Config struct {
 	AgentsHome string
 	AgentsHub  string
 
-	PortRangeStart int
-	PortRangeEnd   int
+	// ClaudeConfig is the absolute path to a host-side .claude.json file
+	// that the runner will bind-mount into the agent container at
+	// /home/node/.claude.json. Sourced from the CLAUDE_CONFIG env var.
+	// An empty value means "no host file" — the container's own
+	// /home/node/.claude.json (which lives on the node_home_<name>
+	// named volume) is used instead.
+	ClaudeConfig string
 
 	HostUID int
 	HostGID int
@@ -46,13 +51,6 @@ type Config struct {
 	// per-agent override is empty. Sourced from the runner's own AGENT_ID env
 	// var (defaults to "default") to mirror the agent-go shell script.
 	AgentID string
-
-	// ProxyHost is the hostname used when the runner reverse-proxies to an
-	// agent container's ttyd. Defaults to 127.0.0.1, which only works when
-	// the runner shares the host network namespace with the agent. Set to
-	// e.g. "host.docker.internal" when running the runner on a bridge
-	// network with --add-host=host.docker.internal:host-gateway.
-	ProxyHost string
 
 	// AuthToken protects the runner's HTTP API and UI. When empty (default)
 	// the runner is open. When set, clients must supply the same token via
@@ -81,9 +79,6 @@ func Load() *Config {
 
 	uid, gid := detectUIDGID()
 
-	portStart, _ := strconv.Atoi(envOrDefault("PORT_RANGE_START", "7681"))
-	portEnd, _ := strconv.Atoi(envOrDefault("PORT_RANGE_END", "7780"))
-
 	home := homeDir()
 
 	return &Config{
@@ -102,16 +97,13 @@ func Load() *Config {
 		AgentsHome: os.Getenv("AGENTS_HOME"),
 		AgentsHub:  os.Getenv("AGENTS_HUB"),
 
-		PortRangeStart: portStart,
-		PortRangeEnd:   portEnd,
+		ClaudeConfig: os.Getenv("CLAUDE_CONFIG"),
 
 		HostUID: uid,
 		HostGID: gid,
 		TZ:      envOrDefault("TZ", "Asia/Shanghai"),
 
 		AgentID: envOrDefault("AGENT_ID", "default"),
-
-		ProxyHost: envOrDefault("RUNNER_PROXY_HOST", "127.0.0.1"),
 
 		AuthToken: os.Getenv("RUNNER_AUTH_TOKEN"),
 
