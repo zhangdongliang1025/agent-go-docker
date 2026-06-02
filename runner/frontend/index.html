@@ -28,11 +28,28 @@
         .btn-new:hover { background: #5a4bd1; }
 
         .collapsed .sidebar-header h1,
+        .collapsed .sidebar-search,
         .collapsed .agent-list,
         .collapsed .agent-info,
         .collapsed .agent-actions { display: none; }
         .collapsed .sidebar-header { padding: 10px 4px; flex-direction: column; }
         .collapsed .btn-new { padding: 4px 6px; font-size: 12px; }
+
+        .sidebar-search { padding: 8px 10px; border-bottom: 1px solid #2a2a3e; }
+        .sidebar-search-input-wrap { position: relative; }
+        .sidebar-search input {
+            width: 100%; padding: 6px 26px 6px 10px; border-radius: 6px;
+            border: 1px solid #3a3a5e; background: #0f0f1a; color: #e0e0e0;
+            font-size: 13px; outline: none; font-family: inherit;
+        }
+        .sidebar-search input:focus { border-color: #6c5ce7; }
+        .sidebar-search input::placeholder { color: #666; }
+        .sidebar-search-clear {
+            position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+            background: transparent; border: none; color: #888; cursor: pointer;
+            padding: 2px 6px; font-size: 14px; line-height: 1; border-radius: 4px;
+        }
+        .sidebar-search-clear:hover { color: #fff; background: rgba(255,255,255,0.08); }
 
         .agent-list { flex: 1; overflow-y: auto; padding: 6px; }
         .agent-item {
@@ -175,11 +192,26 @@
             <h1 x-show="!collapsed">Agent Runner</h1>
             <button class="btn-new" @click="openCreate()" title="Create agent">+</button>
         </div>
+        <div class="sidebar-search">
+            <div class="sidebar-search-input-wrap">
+                <input type="text" x-model="searchQuery" @keydown.escape="searchQuery = ''"
+                       placeholder="Search agents…" />
+                <button class="sidebar-search-clear" @click="searchQuery = ''"
+                        x-show="searchQuery" title="Clear">✕</button>
+            </div>
+        </div>
         <div class="agent-list">
-            <template x-if="agents.length === 0">
-                <div class="empty-sidebar">No agents yet.<br>Click + to create one.</div>
+            <template x-if="filteredAgents.length === 0">
+                <div class="empty-sidebar">
+                    <template x-if="agents.length === 0">
+                        <span>No agents yet.<br>Click + to create one.</span>
+                    </template>
+                    <template x-if="agents.length > 0">
+                        <span>No agents match "<span x-text="searchQuery"></span>"</span>
+                    </template>
+                </div>
             </template>
-            <template x-for="agent in agents" :key="agent.id">
+            <template x-for="agent in filteredAgents" :key="agent.id">
                 <div class="agent-item" :class="{ active: selectedId === agent.id }"
                      @click="selectAgent(agent)">
                     <div class="agent-info">
@@ -428,6 +460,7 @@ function agentApp() {
         iframeKey: 0,
         iframeLoading: false,
         collapsed: false,
+        searchQuery: '',
         refreshTimer: null,
 
         cfg: {
@@ -592,6 +625,17 @@ function agentApp() {
         },
         envKeyValid(key) {
             return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
+        },
+
+        get filteredAgents() {
+            const q = (this.searchQuery || '').trim().toLowerCase();
+            if (!q) return this.agents;
+            return this.agents.filter(a => {
+                const hay = [
+                    a.name, a.agentId, a.projectId, a.workspaceId, a.variant, a.status,
+                ].filter(Boolean).join(' ').toLowerCase();
+                return hay.includes(q);
+            });
         },
 
         async refreshAgents() {
