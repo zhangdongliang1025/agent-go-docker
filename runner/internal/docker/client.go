@@ -321,18 +321,20 @@ func (m *Manager) CreateAgent(ctx context.Context, opts CreateAgentOpts) (*Agent
 		"-v", paths.CodexHome+":/home/node/.codex",
 		"-v", paths.AgentsHome+":/home/node/.agents",
 		"-v", paths.AgentsHub+":/home/node/.agents-hub",
+	)
+	// ClaudeConfig is optional: a host-side .claude.json file can be
+	// bind-mounted into the agent to override the empty file that lives on
+	// the node_home_<name> volume. Must be added before `image` in the
+	// args — anything after `image` is a positional arg to the container
+	// command, not a docker flag.
+	if paths.ClaudeConfig != "" {
+		args = append(args, "-v", paths.ClaudeConfig+":/home/node/.claude.json:ro")
+	}
+	args = append(args,
 		"-w", containerWorkspace,
 		image,
 		"bash", "-lc", startupScript,
 	)
-	// ClaudeConfig is optional: a host-side .claude.json file can be
-	// bind-mounted into the agent to override the empty file that lives on
-	// the node_home_<name> volume. Only mounted when an explicit path is
-	// configured (CLI override or runner default), so the volume-backed
-	// file remains the source of truth in the common case.
-	if paths.ClaudeConfig != "" {
-		args = append(args, "-v", paths.ClaudeConfig+":/home/node/.claude.json:ro")
-	}
 
 	containerID, err := m.dockerOutput(ctx, args...)
 	if err != nil {
