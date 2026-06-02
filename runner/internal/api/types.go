@@ -23,6 +23,7 @@ type CreateAgentRequest struct {
 	CodexHome          string   `json:"codexHome,omitempty"`
 	AgentsHome         string   `json:"agentsHome,omitempty"`
 	AgentsHub          string   `json:"agentsHub,omitempty"`
+	ClaudeConfig       string   `json:"claudeConfig,omitempty"`
 	AnthropicAuthToken string   `json:"anthropicAuthToken,omitempty"`
 	AnthropicBaseURL   string   `json:"anthropicBaseUrl,omitempty"`
 	ClaudeArgs         []string `json:"claudeArgs,omitempty"`
@@ -45,6 +46,7 @@ type AgentResponse struct {
 	CodexHome       string   `json:"codexHome,omitempty"`
 	AgentsHome      string   `json:"agentsHome,omitempty"`
 	AgentsHub       string   `json:"agentsHub,omitempty"`
+	ClaudeConfig    string   `json:"claudeConfig,omitempty"`
 	ClaudeArgs      []string `json:"claudeArgs,omitempty"`
 	ExtraEnv        []EnvVar `json:"extraEnv,omitempty"`
 	HasAuthOverride bool     `json:"hasAuthOverride,omitempty"`
