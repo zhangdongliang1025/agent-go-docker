@@ -4,21 +4,21 @@ set -e
 # 确保 /usr/local/bin 在 PATH 中
 export PATH="/usr/local/bin:$PATH"
 
-if [ -f "${HOME}/.agents-hub/agents/.env" ]; then
+if [ -f "/home/node/.agents-hub/agents/.env" ]; then
     set -a
-    source "${HOME}/.agents-hub/agents/.env"
+    source "/home/node/.agents-hub/agents/.env"
     set +a
 fi
 
-if [ -n "${AGENT_ID:-}" ] && [ -f "${HOME}/.agents-hub/agents/${AGENT_ID}/.env" ]; then
+if [ -n "${AGENT_ID:-}" ] && [ -f "/home/node/.agents-hub/agents/${AGENT_ID}/.env" ]; then
     set -a
-    source "${HOME}/.agents-hub/agents/${AGENT_ID}/.env"
+    source "/home/node/.agents-hub/agents/${AGENT_ID}/.env"
     set +a
 fi
 
 # 如果设置了 AGENT_ID，则在 /workspace 目录下创建 CLAUDE.md,AGENTS.md 文件
 if [ -n "${AGENT_ID:-}" ]; then
-    AGENT_DIR="${HOME}/.agents-hub/agents/${AGENT_ID}"
+    AGENT_DIR="/home/node/.agents-hub/agents/${AGENT_ID}"
     CLAUDE_MD="/workspace/CLAUDE.md"
     AGENTS_MD="/workspace/AGENTS.md"
 

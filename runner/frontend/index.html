@@ -317,9 +317,13 @@
                         <div class="field">
                             <label>Image variant</label>
                             <select x-model="form.variant">
-                                <template x-for="v in variants" :key="v">
-                                    <option :value="v" x-text="v"></option>
-                                </template>
+                                <option value="default">default</option>
+                                <option value="java8">java8</option>
+                                <option value="java17">java17</option>
+                                <option value="java21">java21</option>
+                                <option value="java25">java25</option>
+                                <option value="go">go</option>
+                                <option value="rust">rust</option>
                             </select>
                         </div>
                         <div class="field">

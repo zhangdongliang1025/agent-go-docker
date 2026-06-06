@@ -631,9 +631,13 @@ func joinShellQuoted(tokens []string) string {
 
 // buildStartupScript renders the in-container bootstrap that starts a shpool
 // session running claude, then exposes it via ttyd on the chosen port.
+//
+// ttyd is launched with `-t scrollback=10000` so the xterm.js client keeps
+// up to 10k lines of history on the browser side. The shpool side is bounded
+// by `output_spool_lines` in /etc/shpool/config.toml.
 func buildStartupScript(wrappedClaudeCmd, workspace string, port int) string {
 	return fmt.Sprintf(
-		`export CLAUDE_CMD=%s; export AGENT_WORKSPACE=%s; export TERM="${TERM:-xterm-256color}"; export COLORTERM="${COLORTERM:-truecolor}"; export FORCE_COLOR="${FORCE_COLOR:-3}"; mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR" && (umask 077; export -p > /tmp/agent-env.sh) && shpool attach -b -f --dir "$AGENT_WORKSPACE" -c "$CLAUDE_CMD" claude && for i in $(seq 1 50); do shpool list >/dev/null 2>&1 && break; sleep 0.1; done && printf '%%s\n' '#!/bin/bash' 'exec shpool attach -f claude' > /tmp/agent-cc-web-shpool && chmod +x /tmp/agent-cc-web-shpool && exec /usr/local/bin/ttyd -p %d -W /tmp/agent-cc-web-shpool`,
+		`export CLAUDE_CMD=%s; export AGENT_WORKSPACE=%s; export TERM="${TERM:-xterm-256color}"; export COLORTERM="${COLORTERM:-truecolor}"; export FORCE_COLOR="${FORCE_COLOR:-3}"; mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR" && (umask 077; export -p > /tmp/agent-env.sh) && shpool attach -b -f --dir "$AGENT_WORKSPACE" -c "$CLAUDE_CMD" claude && for i in $(seq 1 50); do shpool list >/dev/null 2>&1 && break; sleep 0.1; done && printf '%%s\n' '#!/bin/bash' 'exec shpool attach -f claude' > /tmp/agent-cc-web-shpool && chmod +x /tmp/agent-cc-web-shpool && exec /usr/local/bin/ttyd -p %d -W -t scrollback=10000 /tmp/agent-cc-web-shpool`,
 		shellSingleQuote(wrappedClaudeCmd),
 		shellSingleQuote(workspace),
 		port,

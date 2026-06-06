@@ -144,6 +144,7 @@ docker run -d --name agent-run \
   -e "HOST_UID=$(id -u)" \
   -e "HOST_GID=$(id -g)" \
   -e "AGENT_ID=default" \
+  -e "CLAUDE_CONFIG=${HOME}/.claude.json" \
   -e "CLAUDE_HOME=${HOME}/.claude" \
   -e "CODEX_HOME=${HOME}/.codex" \
   -e "AGENTS_HUB=${HOME}/.agents-hub" \
