@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -240,7 +242,12 @@ func (h *Handler) ProxyAgent() http.HandlerFunc {
 			// RawPath disagree, breaking downstream URL parsing.
 			req.URL.RawPath = ""
 			req.Host = target.Host
+			// We may inject a small fit script into ttyd's HTML response, so ask
+			// ttyd for an uncompressed page instead of rewriting gzip bytes.
+			req.Header.Del("Accept-Encoding")
 		}
+
+		proxy.ModifyResponse = injectTtydFitScript
 
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			log.Printf("proxy error for agent %s: %v", id, err)
@@ -249,6 +256,45 @@ func (h *Handler) ProxyAgent() http.HandlerFunc {
 
 		proxy.ServeHTTP(w, r)
 	}
+}
+
+func injectTtydFitScript(resp *http.Response) error {
+	contentType := resp.Header.Get("Content-Type")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(contentType, "text/html") || resp.Header.Get("Content-Encoding") != "" || resp.Body == nil {
+		return nil
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+
+	// ttyd runs FitAddon once when the page opens and then only on window
+	// resize. With a large shpool output spool, the initial replay can finish
+	// after that first fit, leaving the xterm screen narrower than its viewport
+	// until the user manually resizes the browser. Run a few delayed fits so a
+	// refreshed ttyd page fills the available width after replay settles.
+	const script = `<script>(()=>{const d=[0,50,150,300,600,1000,2000];const f=()=>{try{window.term&&window.term.fit&&window.term.fit()}catch(e){}};d.forEach(t=>setTimeout(f,t));window.addEventListener('load',()=>d.forEach(t=>setTimeout(f,t)));})();</script>`
+	if bytes.Contains(body, []byte(script)) {
+		resp.Body = io.NopCloser(bytes.NewReader(body))
+		return nil
+	}
+
+	inserted := false
+	if idx := bytes.LastIndex(bytes.ToLower(body), []byte("</body>")); idx >= 0 {
+		body = append(body[:idx], append([]byte(script), body[idx:]...)...)
+		inserted = true
+	}
+	if !inserted {
+		body = append(body, []byte(script)...)
+	}
+
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	resp.Header.Del("Content-Encoding")
+	return nil
 }
 
 func agentToResponse(a *docker.Agent) AgentResponse {

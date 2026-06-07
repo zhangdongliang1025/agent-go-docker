@@ -104,10 +104,11 @@ RUN groupadd --gid 999 docker && usermod -aG docker node
 
 COPY --from=shpool-builder /usr/local/bin/shpool /usr/local/bin/shpool
 
-# shpool 默认 output_spool_lines 较小,刷 ttyd 页面时回放历史只有几十行。
-# 这里把缓存放大到 100k 行,Claude TUI 多次 redraw 的字节都能在刷新后看到。
+# shpool 重连(刷 ttyd 页面)默认 session_restore_mode = "screen",只回放一屏。
+# output_spool_lines 只是内存缓冲上限,真正决定回放多少的是 session_restore_mode。
+# 改成 { lines = 20000 } 才能在刷新后看到 20000 行历史;lines 不能超过 output_spool_lines。
 RUN mkdir -p /etc/shpool && \
-    printf 'output_spool_lines = 100000\n' > /etc/shpool/config.toml && \
+    printf 'output_spool_lines = 20000\nsession_restore_mode = { lines = 20000 }\n' > /etc/shpool/config.toml && \
     chmod 0644 /etc/shpool/config.toml
 
 # ===== 安装 Claude Code =====
