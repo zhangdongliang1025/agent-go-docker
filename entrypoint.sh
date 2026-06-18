@@ -16,44 +16,6 @@ if [ -n "${AGENT_ID:-}" ] && [ -f "/home/node/.agents-hub/agents/${AGENT_ID}/.en
     set +a
 fi
 
-# 如果设置了 AGENT_ID，则在 /workspace 目录下创建 CLAUDE.md,AGENTS.md 文件
-if [ -n "${AGENT_ID:-}" ]; then
-    AGENT_DIR="/home/node/.agents-hub/agents/${AGENT_ID}"
-    CLAUDE_MD="/workspace/CLAUDE.md"
-    AGENTS_MD="/workspace/AGENTS.md"
-
-    {
-        # SOUL.md
-        if [ -f "${AGENT_DIR}/SOUL.md" ]; then
-            echo "<SOUL>"
-            cat "${AGENT_DIR}/SOUL.md"
-            echo "</SOUL>"
-            echo ""
-            echo ""
-        fi
-
-        # AGENTS.md
-        if [ -f "${AGENT_DIR}/AGENTS.md" ]; then
-            echo "<AGENTS>"
-            cat "${AGENT_DIR}/AGENTS.md"
-            echo "</AGENTS>"
-            echo ""
-            echo ""
-        fi
-
-        # MEMORY.md
-        if [ -f "${AGENT_DIR}/MEMORY.md" ]; then
-            echo "<MEMORY>"
-            cat "${AGENT_DIR}/MEMORY.md"
-            echo "</MEMORY>"
-        fi
-    } > "${AGENTS_MD}"
-
-    if [ -f "${AGENTS_MD}" ]; then
-       echo "@AGENTS.md" > "${CLAUDE_MD}"
-    fi
-fi
-
 # 以 root 运行且设置了 HOST_UID 时，将容器内 node 用户的 UID/GID 调整为与宿主机一致
 # 这样容器内创建的文件在宿主机上拥有正确的属主
 if [ "$(id -u)" = "0" ] && [ -n "${HOST_UID:-}" ]; then

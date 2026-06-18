@@ -75,6 +75,34 @@ func (h *Handler) RestartAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarting"})
 }
 
+func (h *Handler) StartAgent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing agent id")
+		return
+	}
+	if err := h.manager.StartAgent(r.Context(), id); err != nil {
+		log.Printf("start agent error: %v", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "starting"})
+}
+
+func (h *Handler) StopAgent(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing agent id")
+		return
+	}
+	if err := h.manager.StopAgent(r.Context(), id); err != nil {
+		log.Printf("stop agent error: %v", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
 func reqToOpts(req CreateAgentRequest) docker.CreateAgentOpts {
 	args := req.ClaudeArgs
 	cleaned := args[:0]

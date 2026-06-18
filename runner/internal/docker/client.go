@@ -432,6 +432,34 @@ func (m *Manager) RestartAgent(ctx context.Context, id string) error {
 	return nil
 }
 
+// StartAgent starts a stopped container. The container's startup script is
+// re-executed, bringing shpool + ttyd back up. Pair with StopAgent as a
+// non-destructive alternative to RecreateAgent/RemoveAgent.
+func (m *Manager) StartAgent(ctx context.Context, id string) error {
+	agent, err := m.GetAgent(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := m.dockerRun(ctx, "start", agent.ID); err != nil {
+		return fmt.Errorf("start container: %w", err)
+	}
+	return nil
+}
+
+// StopAgent gracefully stops a running container (SIGTERM, then SIGKILL after
+// the grace period). The container and its node_home volume are preserved, so
+// StartAgent can bring it back.
+func (m *Manager) StopAgent(ctx context.Context, id string) error {
+	agent, err := m.GetAgent(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := m.dockerRun(ctx, "stop", "-t", "10", agent.ID); err != nil {
+		return fmt.Errorf("stop container: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) ListAgents(ctx context.Context) ([]*Agent, error) {
 	// First pass: just collect container IDs matching our managed label.
 	// We intentionally avoid `--format` templates that interpolate labels

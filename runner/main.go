@@ -41,6 +41,8 @@ func main() {
 	mux.HandleFunc("PUT /api/agents/{id}", handler.UpdateAgent)
 	mux.HandleFunc("DELETE /api/agents/{id}", handler.RemoveAgent)
 	mux.HandleFunc("POST /api/agents/{id}/restart", handler.RestartAgent)
+	mux.HandleFunc("POST /api/agents/{id}/start", handler.StartAgent)
+	mux.HandleFunc("POST /api/agents/{id}/stop", handler.StopAgent)
 	mux.HandleFunc("GET /api/config", handler.GetConfig)
 	mux.HandleFunc("GET /api/lists/agents", handler.ListAgentIDs)
 	mux.HandleFunc("GET /api/lists/projects", handler.ListProjects)
