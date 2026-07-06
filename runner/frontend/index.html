@@ -291,7 +291,7 @@
                     <template x-if="iframeLoading">
                         <div class="iframe-loading">Starting terminal...</div>
                     </template>
-                    <iframe :src="selectedAgent.ttydUrl" :key="iframeKey"
+                    <iframe x-ref="terminal" :src="selectedAgent.ttydUrl"
                             @load="iframeLoading = false; patchIframe($event)"
                             @error="iframeLoading = false"></iframe>
                 </div>
@@ -465,7 +465,6 @@ function agentApp() {
         agents: [],
         selectedId: null,
         selectedAgent: null,
-        iframeKey: 0,
         iframeLoading: false,
         collapsed: false,
         searchQuery: '',
@@ -573,20 +572,54 @@ function agentApp() {
             }
         },
 
-        async waitAgentReady(id, maxRetries = 30, delayMs = 1000) {
+        // waitTtydReady polls the agent's proxied ttyd URL until it returns the
+        // ttyd HTML page. This is the correct readiness signal: Docker reports a
+        // container "running" as soon as it starts, BEFORE ttyd has bound port
+        // 7681, so checking container status alone races the iframe load and
+        // the iframe ends up showing a 502 "agent terminal unavailable" page.
+        async waitTtydReady(id, maxRetries = 30, delayMs = 1000) {
+            const url = '/proxy/' + id + '/';
             for (let i = 0; i < maxRetries; i++) {
                 try {
-                    const resp = await fetch('/api/agents/' + id);
-                    if (resp.ok) {
-                        const agent = await resp.json();
-                        if (agent.status === 'running') {
-                            return true;
-                        }
+                    const resp = await fetch(url);
+                    if (resp.ok && (resp.headers.get('content-type') || '').includes('text/html')) {
+                        return true;
                     }
                 } catch (e) {}
                 await new Promise(r => setTimeout(r, delayMs));
             }
             return false;
+        },
+
+        // reloadTerminal forces the ttyd iframe to navigate again so its @load
+        // fires and clears the "Starting terminal..." overlay. Alpine's :src
+        // binding only re-navigates when the URL string CHANGES, so for a
+        // restart/start of the SAME agent (unchanged /proxy/{id}/ URL) we must
+        // reload imperatively. (:key="iframeKey" does NOT recreate a standalone
+        // element in Alpine v3 — only x-for consumes _x_keyExpression; on a
+        // plain element :key just calls setAttribute('key', n), a no-op.)
+        reloadTerminal() {
+            this.suppressBeforeUnload();
+            this.iframeLoading = true;
+            this.$nextTick(() => this.forceIframeReload());
+        },
+
+        forceIframeReload() {
+            const f = this.$refs.terminal;
+            if (!f || !f.contentWindow || !this.selectedAgent) return;
+            const desired = this.selectedAgent.ttydUrl;
+            let cur = '';
+            try {
+                const l = f.contentWindow.location;
+                cur = l.pathname + l.search;
+            } catch (e) {
+                return; // cross-origin — shouldn't happen, the proxy is same-origin
+            }
+            // Only force-reload when the iframe is already on the desired URL;
+            // otherwise a :src change is already navigating it and @load will fire.
+            if (cur === desired) {
+                try { f.contentWindow.location.reload(); } catch (e) {}
+            }
         },
 
         async fetchWorkspaces() {
@@ -697,8 +730,7 @@ function agentApp() {
             this.suppressBeforeUnload();
             this.selectedId = agent.id;
             this.selectedAgent = agent;
-            this.iframeLoading = true;
-            this.iframeKey++;
+            this.reloadTerminal();
             this.setHashId(agent.id);
         },
 
@@ -859,14 +891,15 @@ function agentApp() {
                 }
                 const result = await resp.json();
                 this.modalOpen = false;
-                // Poll until agent is running and ttyd is ready
-                const ready = await this.waitAgentReady(result.id, 30, 1000);
+                // Poll until ttyd is actually serving (container "running" alone
+                // is not enough — see waitTtydReady).
+                const ready = await this.waitTtydReady(result.id, 30, 1000);
                 await this.refreshAgents();
                 const fresh = this.agents.find(a => a.id === result.id) || result;
                 if (fresh) this.selectAgent(fresh);
-                // If still not ready, retry iframe after a short delay
+                // If still not ready, retry the iframe load after a short delay
                 if (!ready) {
-                    setTimeout(() => { this.iframeKey++; }, 2000);
+                    setTimeout(() => { this.reloadTerminal(); }, 2000);
                 }
             } catch (e) {
                 console.error(e);
@@ -886,10 +919,8 @@ function agentApp() {
                     return;
                 }
                 await this.refreshAgents();
-                await this.waitAgentReady(agent.id, 20, 1000);
-                this.suppressBeforeUnload();
-                this.iframeLoading = true;
-                this.iframeKey++;
+                await this.waitTtydReady(agent.id, 30, 1000);
+                this.reloadTerminal();
             } catch (e) {
                 alert('Network error');
             }
@@ -908,10 +939,8 @@ function agentApp() {
                     return;
                 }
                 await this.refreshAgents();
-                await this.waitAgentReady(agent.id, 20, 1000);
-                this.suppressBeforeUnload();
-                this.iframeLoading = true;
-                this.iframeKey++;
+                await this.waitTtydReady(agent.id, 30, 1000);
+                this.reloadTerminal();
             } catch (e) {
                 alert('Network error');
             }
