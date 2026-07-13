@@ -1,32 +1,121 @@
 #!/bin/bash
 set -e
 
-# 确保 /usr/local/bin 在 PATH 中
+# =============================================================================
+# Container Entrypoint
+# Handles: UID mapping, JDK switching, env loading
+# =============================================================================
+
+# Ensure /usr/local/bin is in PATH
 export PATH="/usr/local/bin:$PATH"
 
-if [ -f "/home/node/.agents-hub/agents/.env" ]; then
-    set -a
-    source "/home/node/.agents-hub/agents/.env"
-    set +a
-fi
-
-if [ -n "${AGENT_ID:-}" ] && [ -f "/home/node/.agents-hub/agents/${AGENT_ID}/.env" ]; then
-    set -a
-    source "/home/node/.agents-hub/agents/${AGENT_ID}/.env"
-    set +a
-fi
-
-# 以 root 运行且设置了 HOST_UID 时，将容器内 node 用户的 UID/GID 调整为与宿主机一致
-# 这样容器内创建的文件在宿主机上拥有正确的属主
-if [ "$(id -u)" = "0" ] && [ -n "${HOST_UID:-}" ]; then
-    if [ "$(id -u node)" != "${HOST_UID}" ]; then
-        OLD_UID=$(id -u node)
-        groupmod -g "${HOST_GID}" node 2>/dev/null || true
-        usermod -u "${HOST_UID}" -g "${HOST_GID}" node
-        # 修正构建阶段以旧 UID 创建的文件（.gitconfig 等）
-        find /home/node -user "${OLD_UID}" -exec chown -h node:node {} + 2>/dev/null || true
+# ---------------------------------------------------------------------------
+# Load environment files
+# ---------------------------------------------------------------------------
+load_env_file() {
+    local file="$1"
+    if [ -f "$file" ]; then
+        set -a
+        # shellcheck source=/dev/null
+        source "$file"
+        set +a
     fi
-    exec gosu node "$@"
+}
+
+# Load global agent env
+load_env_file "/home/node/.agents-hub/agents/.env"
+
+# Load per-agent env if AGENT_ID is set
+if [ -n "${AGENT_ID:-}" ]; then
+    load_env_file "/home/node/.agents-hub/agents/${AGENT_ID}/.env"
 fi
+
+# ---------------------------------------------------------------------------
+# Initialize SDKMAN
+# ---------------------------------------------------------------------------
+init_sdkman() {
+    if [ -f "/usr/local/sdkman/bin/sdkman-init.sh" ]; then
+        export SDKMAN_DIR="/usr/local/sdkman"
+        # shellcheck source=/dev/null
+        source "/usr/local/sdkman/bin/sdkman-init.sh"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# JDK Version Mapping
+# ---------------------------------------------------------------------------
+declare -A JDK_VERSIONS=(
+    [8]="8.0.442-tem"
+    [11]="11.0.26-tem"
+    [17]="17.0.14-tem"
+    [21]="21.0.6-tem"
+    [25]="25.0.0-tem"
+)
+
+# ---------------------------------------------------------------------------
+# Switch JDK version
+# ---------------------------------------------------------------------------
+switch_jdk() {
+    local version="${1:-}"
+
+    if [ -z "$version" ]; then
+        return 0
+    fi
+
+    local full_version="${JDK_VERSIONS[$version]:-}"
+
+    if [ -z "$full_version" ]; then
+        echo "Warning: Unknown JDK version '${version}'. Available: ${!JDK_VERSIONS[*]}" >&2
+        return 1
+    fi
+
+    if ! command -v sdk &> /dev/null; then
+        echo "Warning: SDKMAN not available, cannot switch JDK" >&2
+        return 1
+    fi
+
+    if sdk use java "$full_version" 2>/dev/null; then
+        echo "Switched to JDK ${version} (${full_version})"
+    else
+        echo "Warning: JDK ${full_version} not installed" >&2
+        return 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Map container user UID/GID to match host
+# ---------------------------------------------------------------------------
+map_user_ids() {
+    if [ "$(id -u)" != "0" ] || [ -z "${HOST_UID:-}" ]; then
+        return 0
+    fi
+
+    local current_uid
+    current_uid=$(id -u node)
+
+    if [ "$current_uid" = "${HOST_UID}" ]; then
+        return 0
+    fi
+
+    local old_uid
+    old_uid=$(id -u node)
+
+    groupmod -g "${HOST_GID}" node 2>/dev/null || true
+    usermod -u "${HOST_UID}" -g "${HOST_GID}" node
+
+    # Fix files created during build with old UID
+    find /home/node -user "${old_uid}" -exec chown -h node:node {} + 2>/dev/null || true
+
+    # Switch to node user and execute remaining commands
+    exec gosu node "$@"
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+init_sdkman
+switch_jdk "${JDK_VERSION:-}"
+map_user_ids "$@"
 
 exec "$@"

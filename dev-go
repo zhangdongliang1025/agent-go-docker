@@ -2,17 +2,30 @@
 
 set -e
 
-IMAGE_REGISTRY="${AGENT_IMAGE_REGISTRY:-ghcr.io/mark0725/agent-go-docker}"
-IMAGE="${IMAGE_REGISTRY}:latest"
+# =============================================================================
+# dev-go - Development Environment Launcher for Claude Code
+#
+# Provides commands to launch Claude Code in Docker containers with:
+# - Multiple JDK versions (8, 11, 17, 21, 25)
+# - Full development stack (Go, Rust, Python, Node.js)
+# - Web terminal (ttyd) and session persistence (shpool)
+# =============================================================================
 
-PROJECT_ID="${PROJECT_ID:-$(pwd | sed 's#/#_#g')}"
+# ===== Configuration =====
+readonly VERSION="2.0.0"
+readonly IMAGE_REGISTRY="${AGENT_IMAGE_REGISTRY:-ghcr.io/mark0725/agent-go-docker}"
+readonly IMAGE="${IMAGE_REGISTRY}:latest"
+
 AGENT_ID="${AGENT_ID:-default}"
+PROJECT_ID="${PROJECT_ID:-$(pwd | sed 's#/#_#g')}"
 
-PROJECT_HOME="${PROJECT_HOME:-$(pwd)}"
+# Data mount point (default /data)
+DATA_MOUNT="${DATA_MOUNT:-/data}"
+
 CLAUDE_HOME="${CLAUDE_HOME:-${HOME}/.claude}"
 AGENTS_HOME="${AGENTS_HOME:-${HOME}/.agents}"
 AGENTS_HUB="${AGENTS_HUB:-${HOME}/.agents-hub}"
-AGENT_WORKSPACE="${AGENT_WORKSPACE:-/workspace/${PROJECT_ID}}"
+
 LOCAL_BIN="${LOCAL_BIN:-${HOME}/.local/bin}"
 TTY_PORT="${TTY_PORT:-7681}"
 
@@ -23,73 +36,101 @@ DOCKER_SOCK="${DOCKER_SOCK:-/var/run/docker.sock}"
 
 REMAINING_ARGS=()
 
+# ===== Usage =====
 usage() {
     cat <<EOF
-Usage: agent-go <command> [options]
-       (or invoke via symlinks: agent-cc, agent-cc-web, agent-cc-tmux)
+dev-go v${VERSION} - Development Environment Launcher
+
+Usage: dev-go <command> [options]
+       (or invoke via symlinks: dev-cc, dev-cc-web, dev-cc-tmux)
 
 Commands:
-  agent-cc         Start claude in interactive CLI mode (default)
-  agent-cc-web     Start claude with ttyd web terminal + shpool session (background)
-  agent-cc-tmux    Start claude inside a shpool session
-  add              Create symlinks for agent commands in a directory (default: ~/.local/bin)
+  dev-cc         Start claude in interactive CLI mode (default)
+  dev-cc-web     Start claude with ttyd web terminal + shpool session (background)
+  dev-cc-tmux    Start claude inside a shpool session
+  add            Create symlinks for dev commands in a directory (default: ~/.local/bin)
 
-Image options:
-  --java8          Use java8 image
-  --java, --java17 Use java17 image
-  --java21         Use java21 image
-  --java25         Use java25 image
-  --go             Use go image
-  --rust           Use rust image
+Options:
+  -p <path>      Project path to mount (default: current directory)
+  --data <path>  Data mount point inside container (default: /data)
+  --java8        Use JDK 8
+  --java11       Use JDK 11
+  --java17       Use JDK 17 (default)
+  --java21       Use JDK 21
+  --java25       Use JDK 25
+  -h, --help     Show this help
+  -v, --version  Show version
+
+Examples:
+  dev-cc                          # Start with current directory
+  dev-cc -p ~/projects/myapp      # Start with specific project
+  dev-cc --java21                 # Use JDK 21
+  dev-cc -p ~/projects/myapp --java11  # Combined options
 
 Environment variables:
   AGENT_IMAGE_REGISTRY  Docker image registry (default: ghcr.io/mark0725/agent-go-docker)
   AGENT_ID              Agent ID (default: default)
-  PROJECT_HOME          Host project directory (default: \$(pwd))
+  DATA_MOUNT            Data mount point inside container (default: /data)
   CLAUDE_HOME           Claude config directory (default: ~/.claude)
   AGENTS_HOME           Agents data directory (default: ~/.agents)
   AGENTS_HUB            Agents hub directory (default: ~/.agents-hub)
-  AGENT_WORKSPACE       Container workspace path (default: /workspace/\${PROJECT_ID})
   LOCAL_BIN             Directory for symlinks (default: ~/.local/bin)
   TTY_PORT              Port for ttyd web server (default: 7681)
 EOF
+    exit 0
+}
+
+version() {
+    echo "dev-go v${VERSION}"
+    echo "Image: ${IMAGE}"
+    exit 0
+}
+
+# ===== Error handling =====
+error() {
+    echo "Error: $1" >&2
     exit 1
 }
 
+warn() {
+    echo "Warning: $1" >&2
+}
+
+# ===== Parse options =====
 parse_global_options() {
     REMAINING_ARGS=()
     while [ $# -gt 0 ]; do
         case "$1" in
-            --java8)
-                IMAGE="${IMAGE_REGISTRY}:java8"
-                shift
+            -p|--path)
+                if [ -z "${2:-}" ]; then
+                    error "Option $1 requires a value"
+                fi
+                PROJECT_HOME="$2"
+                shift 2
                 ;;
-            --java|--java17)
-                IMAGE="${IMAGE_REGISTRY}:java17"
-                shift
+            --data)
+                if [ -z "${2:-}" ]; then
+                    error "Option $1 requires a value"
+                fi
+                DATA_MOUNT="$2"
+                shift 2
                 ;;
-            --java21)
-                IMAGE="${IMAGE_REGISTRY}:java21"
-                shift
-                ;;
-            --java25)
-                IMAGE="${IMAGE_REGISTRY}:java25"
-                shift
-                ;;
-            --go)
-                IMAGE="${IMAGE_REGISTRY}:go"
-                shift
-                ;;
-            --rust)
-                IMAGE="${IMAGE_REGISTRY}:rust"
+            --java8|--java11|--java17|--java21|--java25)
+                JDK_VERSION="${1#--java}"
                 shift
                 ;;
             -h|--help)
                 usage
                 ;;
+            -v|--version)
+                version
+                ;;
             --)
                 shift
                 break
+                ;;
+            -*)
+                error "Unknown option: $1"
                 ;;
             *)
                 break
@@ -103,6 +144,26 @@ parse_global_options() {
     done
 }
 
+# ===== Validate prerequisites =====
+validate() {
+    if ! command -v docker &> /dev/null; then
+        error "Docker is not installed or not in PATH"
+    fi
+
+    if ! docker info &> /dev/null; then
+        error "Docker daemon is not running or not accessible"
+    fi
+
+    # Validate project path
+    if [ -n "${PROJECT_HOME:-}" ] && [ ! -d "$PROJECT_HOME" ]; then
+        error "Project path does not exist: $PROJECT_HOME"
+    fi
+
+    # Ensure required directories exist
+    mkdir -p "$CLAUDE_HOME" "$AGENTS_HOME" "$AGENTS_HUB"
+}
+
+# ===== Common Docker args =====
 append_common_docker_args() {
     local -n _args=$1
 
@@ -114,8 +175,10 @@ append_common_docker_args() {
         -e "HOME=/home/node"
         -e "XDG_RUNTIME_DIR=/tmp/runtime-node"
         -e "AGENT_ID=${AGENT_ID}"
+        -e "DATA_MOUNT=${DATA_MOUNT}"
     )
 
+    # Pass through auth tokens
     [ -n "${ANTHROPIC_AUTH_TOKEN:-}" ] && _args+=(-e "ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN}")
     [ -n "${ANTHROPIC_BASE_URL:-}" ] && _args+=(-e "ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}")
     [ -n "${API_TIMEOUT_MS:-}" ] && _args+=(-e "API_TIMEOUT_MS=${API_TIMEOUT_MS}")
@@ -123,18 +186,34 @@ append_common_docker_args() {
     [ -n "${HTTP_PROXY:-}" ] && _args+=(-e "HTTP_PROXY=${HTTP_PROXY}")
     [ -n "${HTTPS_PROXY:-}" ] && _args+=(-e "HTTPS_PROXY=${HTTPS_PROXY}")
 
+    # JDK version selection
+    if [ -n "${JDK_VERSION:-}" ]; then
+        _args+=(-e "JDK_VERSION=${JDK_VERSION}")
+    fi
+
+    # Mount volumes
     _args+=(
         -v "node_home:/home/node"
         -v "/etc/localtime:/etc/localtime:ro"
         -v "${DOCKER_SOCK}:/var/run/docker.sock"
-        -v "${PROJECT_HOME}:/workspace/${PROJECT_ID}"
+        -v "${PROJECT_HOME}:${DATA_MOUNT}"
         -v "${CLAUDE_HOME}:/home/node/.claude"
         -v "${AGENTS_HOME}:/home/node/.agents"
         -v "${AGENTS_HUB}:/home/node/.agents-hub"
-        -w "${AGENT_WORKSPACE}"
     )
+
+    # Mount local Maven settings and repository
+    if [ -f "${HOME}/.m2/settings.xml" ]; then
+        _args+=(-v "${HOME}/.m2/settings.xml:/home/node/.m2/settings.xml:ro")
+    fi
+    if [ -d "${HOME}/.m2/repository" ]; then
+        _args+=(-v "${HOME}/.m2/repository:/home/node/.m2/repository")
+    fi
+
+    _args+=(-w "${DATA_MOUNT}")
 }
 
+# ===== Run Docker =====
 run_docker() {
     local docker_args=(run -it --rm --network=host)
     append_common_docker_args docker_args
@@ -150,16 +229,17 @@ run_docker_detached() {
 
 build_claude_cmd() {
     local claude_cmd
-    printf -v claude_cmd '%q ' claude --dangerously-skip-permissions --allowedTools "Edit,Write,Bash" "$@"
+    printf -v claude_cmd '%q ' claude "$@"
     claude_cmd="${claude_cmd% }"
     printf '%s' "$claude_cmd"
 }
 
-cmd_agent_cc() {
-    run_docker claude --dangerously-skip-permissions --allowedTools "Edit,Write,Bash" "$@"
+# ===== Commands =====
+cmd_dev_cc() {
+    run_docker claude "$@"
 }
 
-cmd_agent_cc_tmux() {
+cmd_dev_cc_tmux() {
     local claude_cmd
     local escaped_claude_cmd
     claude_cmd="$(build_claude_cmd "$@")"
@@ -167,7 +247,7 @@ cmd_agent_cc_tmux() {
     run_docker bash -lc "export CLAUDE_CMD=${escaped_claude_cmd}; mkdir -p \"\$XDG_RUNTIME_DIR\" && chmod 700 \"\$XDG_RUNTIME_DIR\" && exec shpool attach -f -c \"\$CLAUDE_CMD\" claude"
 }
 
-cmd_agent_cc_web() {
+cmd_dev_cc_web() {
     local claude_cmd
     local wrapped_claude_cmd
     local escaped_claude_cmd
@@ -176,18 +256,18 @@ cmd_agent_cc_web() {
     local container_id
     local container_name
 
-    container_name="${CONTAINER_NAME:-agent-cc-web-$(date +%s)}"
+    container_name="${CONTAINER_NAME:-dev-cc-web-$(date +%s)}"
     CONTAINER_NAME="$container_name"
 
     claude_cmd="$(build_claude_cmd "$@")"
     wrapped_claude_cmd="bash -lc $(printf '%q' ". /tmp/agent-env.sh && exec $claude_cmd")"
     printf -v escaped_claude_cmd '%q' "$wrapped_claude_cmd"
-    printf -v escaped_workspace '%q' "$AGENT_WORKSPACE"
+    printf -v escaped_workspace '%q' "$DATA_MOUNT"
     wrapper="/tmp/agent-cc-web-shpool"
 
     container_id="$(run_docker_detached bash -lc "export CLAUDE_CMD=${escaped_claude_cmd}; export AGENT_WORKSPACE=${escaped_workspace}; export TERM=\"\${TERM:-xterm-256color}\"; export COLORTERM=\"\${COLORTERM:-truecolor}\"; export FORCE_COLOR=\"\${FORCE_COLOR:-3}\"; mkdir -p \"\$XDG_RUNTIME_DIR\" && chmod 700 \"\$XDG_RUNTIME_DIR\" && (umask 077; export -p > /tmp/agent-env.sh) && shpool attach -b -f --dir \"\$AGENT_WORKSPACE\" -c \"\$CLAUDE_CMD\" claude && for i in \$(seq 1 50); do shpool list >/dev/null 2>&1 && break; sleep 0.1; done && printf '%s\\n' '#!/bin/bash' 'exec shpool attach -f claude' > ${wrapper} && chmod +x ${wrapper} && exec /usr/local/bin/ttyd -p ${TTY_PORT} -W ${wrapper}")"
     echo "${container_id}"
-    echo "agent-cc-web started: http://localhost:${TTY_PORT}"
+    echo "dev-cc-web started: http://localhost:${TTY_PORT}"
     echo "container name: ${container_name}"
 }
 
@@ -202,7 +282,7 @@ cmd_add() {
     echo "Source: ${SCRIPT_PATH}"
     echo
 
-    for applet in agent-cc agent-cc-web agent-cc-tmux; do
+    for applet in dev-cc dev-cc-web dev-cc-tmux; do
         link_path="${target_dir}/${applet}"
         if [ -L "${link_path}" ]; then
             rm "${link_path}"
@@ -226,17 +306,20 @@ run_named_command() {
     shift || true
 
     case "$subcmd" in
-        agent-cc)
+        dev-cc)
             parse_global_options "$@"
-            cmd_agent_cc "${REMAINING_ARGS[@]}"
+            validate
+            cmd_dev_cc "${REMAINING_ARGS[@]}"
             ;;
-        agent-cc-web)
+        dev-cc-web)
             parse_global_options "$@"
-            cmd_agent_cc_web "${REMAINING_ARGS[@]}"
+            validate
+            cmd_dev_cc_web "${REMAINING_ARGS[@]}"
             ;;
-        agent-cc-tmux)
+        dev-cc-tmux)
             parse_global_options "$@"
-            cmd_agent_cc_tmux "${REMAINING_ARGS[@]}"
+            validate
+            cmd_dev_cc_tmux "${REMAINING_ARGS[@]}"
             ;;
         add)
             cmd_add "$@"
@@ -244,21 +327,23 @@ run_named_command() {
         -h|--help|help)
             usage
             ;;
+        -v|--version|version)
+            version
+            ;;
         *)
-            echo "Unknown command: ${subcmd}"
-            echo "Available: agent-cc, agent-cc-web, agent-cc-tmux, add"
-            exit 1
+            error "Unknown command: ${subcmd}"
             ;;
     esac
 }
 
-if [ "$SCRIPT_NAME" = "agent-go" ]; then
-    run_named_command "${1:-agent-cc}" "${@:2}"
+# ===== Main =====
+if [ "$SCRIPT_NAME" = "dev-go" ]; then
+    run_named_command "${1:-dev-cc}" "${@:2}"
     exit
 fi
 
 case "$SCRIPT_NAME" in
-    agent-cc|agent-cc-web|agent-cc-tmux)
+    dev-cc|dev-cc-web|dev-cc-tmux)
         run_named_command "$SCRIPT_NAME" "$@"
         ;;
     add)
@@ -267,10 +352,10 @@ case "$SCRIPT_NAME" in
     -h|--help|help)
         usage
         ;;
+    -v|--version|version)
+        version
+        ;;
     *)
-        echo "Unknown command: $SCRIPT_NAME"
-        echo "Did you mean to create a symlink? ./agent-go add"
-        echo
-        usage
+        error "Unknown command: $SCRIPT_NAME"
         ;;
 esac
