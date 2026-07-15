@@ -99,6 +99,28 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# ===== Install Playwright dependencies (for headless browser) =====
+RUN apt-get update && apt-get install -y \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpangocairo-1.0-0 \
+    libxss1 \
+    libgtk-3-0 \
+    libxshmfence1 \
+    libglu1-mesa \
+    libegl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ===== Install Playwright =====
+RUN pip3 install --break-system-packages playwright && \
+    playwright install chromium && \
+    rm -rf /root/.cache/pip
+
 # ===== Install Docker CLI =====
 RUN curl -fsSL --http1.1 "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
     | tar -xz -C /usr/local/bin --strip-components=1 docker/docker \
