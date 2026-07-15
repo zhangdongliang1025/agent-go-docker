@@ -292,6 +292,8 @@ func (m *Manager) CreateAgent(ctx context.Context, opts CreateAgentOpts) (*Agent
 		"-e", "CODEX_HOME=/home/node/.codex",
 		"-e", "AGENTS_HOME=/home/node/.agents",
 		"-e", "AGENTS_HUB=/home/node/.agents-hub",
+		"-e", fmt.Sprintf("AUTO_UPDATE_TOOLS=%s", m.cfg.AutoUpdateTools),
+		"-e", fmt.Sprintf("TOOL_UPDATE_TIMEOUT=%s", m.cfg.ToolUpdateTimeout),
 	}
 
 	for _, e := range []struct{ k, v string }{

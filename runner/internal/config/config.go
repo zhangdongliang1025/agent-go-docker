@@ -64,6 +64,15 @@ type Config struct {
 	ProxyURL           string
 	HTTPProxy          string
 	HTTPSProxy         string
+
+	// AutoUpdateTools controls whether agent containers auto-update
+	// Claude Code and Codex on startup. Passed as AUTO_UPDATE_TOOLS
+	// env var to containers. Default: "true".
+	AutoUpdateTools string
+
+	// ToolUpdateTimeout is the per-package timeout (in seconds) for
+	// npm update operations during container startup. Default: "120".
+	ToolUpdateTimeout string
 }
 
 func envOrDefault(key, fallback string) string {
@@ -112,6 +121,9 @@ func Load() *Config {
 		ProxyURL:           os.Getenv("PROXY_URL"),
 		HTTPProxy:          os.Getenv("HTTP_PROXY"),
 		HTTPSProxy:         os.Getenv("HTTPS_PROXY"),
+
+		AutoUpdateTools:    envOrDefault("AUTO_UPDATE_TOOLS", "true"),
+		ToolUpdateTimeout:  envOrDefault("TOOL_UPDATE_TIMEOUT", "120"),
 	}
 }
 
@@ -123,11 +135,21 @@ func detectUIDGID() (int, int) {
 			gidStr = v
 		}
 		gid, _ := strconv.Atoi(gidStr)
+		// Guard: UID 0 would make agent containers run as root,
+		// defeating gosu privilege drop. Fall back to 1000.
+		if uid == 0 {
+			return 1000, 1000
+		}
 		return uid, gid
 	}
 	if u, err := user.Current(); err == nil {
 		uid, _ := strconv.Atoi(u.Uid)
 		gid, _ := strconv.Atoi(u.Gid)
+		// Guard: runner running as root (UID 0) should not
+		// propagate UID 0 to agent containers.
+		if uid == 0 {
+			return 1000, 1000
+		}
 		return uid, gid
 	}
 	return 1000, 1000

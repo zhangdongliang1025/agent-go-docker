@@ -90,24 +90,46 @@ map_user_ids() {
         return 0
     fi
 
+    # Guard: HOST_UID=0 would make node user root, defeating gosu.
+    # Fall back to default UID 1000 to ensure privilege drop works.
+    if [ "${HOST_UID}" = "0" ]; then
+        echo "[entrypoint] Warning: HOST_UID=0 detected, falling back to UID 1000 for node user" >&2
+        HOST_UID=1000
+        HOST_GID=${HOST_GID:-1000}
+    fi
+
     local current_uid
     current_uid=$(id -u node)
 
-    if [ "$current_uid" = "${HOST_UID}" ]; then
-        return 0
+    if [ "$current_uid" != "${HOST_UID}" ]; then
+        local old_uid
+        old_uid=$(id -u node)
+
+        groupmod -g "${HOST_GID}" node 2>/dev/null || true
+        usermod -u "${HOST_UID}" -g "${HOST_GID}" node
+
+        # Fix files created during build with old UID
+        find /home/node -user "${old_uid}" -exec chown -h node:node {} + 2>/dev/null || true
     fi
 
-    local old_uid
-    old_uid=$(id -u node)
-
-    groupmod -g "${HOST_GID}" node 2>/dev/null || true
-    usermod -u "${HOST_UID}" -g "${HOST_GID}" node
-
-    # Fix files created during build with old UID
-    find /home/node -user "${old_uid}" -exec chown -h node:node {} + 2>/dev/null || true
-
-    # Switch to node user and execute remaining commands
+    # Always drop privileges to node user via gosu, even when UID already
+    # matches. Without this, the container runs as root when HOST_UID=1000.
     exec gosu node "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Auto-update AI tools (Claude Code, Codex)
+# Runs as root before gosu drops privileges.
+# Controlled by AUTO_UPDATE_TOOLS env var (default: true).
+# ---------------------------------------------------------------------------
+update_ai_tools() {
+    if [ -x /usr/local/bin/update-tools.sh ]; then
+        /usr/local/bin/update-tools.sh || echo "[entrypoint] Tool update failed, continuing with build-time versions"
+        # Fix npm cache ownership: npm install -g runs as root and may write
+        # to /home/node/.npm/ with root ownership. chown ensures the node
+        # user can access the cache after gosu drops privileges.
+        chown -R node:node /home/node/.npm 2>/dev/null || true
+    fi
 }
 
 # =============================================================================
@@ -116,6 +138,7 @@ map_user_ids() {
 
 init_sdkman
 switch_jdk "${JDK_VERSION:-}"
+update_ai_tools
 map_user_ids "$@"
 
 exec "$@"

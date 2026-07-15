@@ -25,8 +25,6 @@ RUN cargo install --locked shpool --root /usr/local \
 # ===== Stage 2: Base image with all dev environments =====
 FROM node:24-slim
 
-ARG USER_UID=1000
-ARG USER_GID=1000
 ARG TARGETARCH
 ARG DOCKER_VERSION=27.1.0
 ARG TTYD_VERSION="1.7.7"
@@ -141,6 +139,10 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # ===== Install Codex =====
 RUN npm i -g @openai/codex
+
+# ===== Tool auto-update script =====
+COPY update-tools.sh /usr/local/bin/update-tools.sh
+RUN chmod +x /usr/local/bin/update-tools.sh
 
 # ===== Install gosu for UID mapping =====
 RUN ARCH=${TARGETARCH:-$(dpkg --print-architecture)} && \

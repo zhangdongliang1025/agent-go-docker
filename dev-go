@@ -186,6 +186,10 @@ append_common_docker_args() {
     [ -n "${HTTP_PROXY:-}" ] && _args+=(-e "HTTP_PROXY=${HTTP_PROXY}")
     [ -n "${HTTPS_PROXY:-}" ] && _args+=(-e "HTTPS_PROXY=${HTTPS_PROXY}")
 
+    # Tool auto-update control
+    [ -n "${AUTO_UPDATE_TOOLS:-}" ] && _args+=(-e "AUTO_UPDATE_TOOLS=${AUTO_UPDATE_TOOLS}")
+    [ -n "${TOOL_UPDATE_TIMEOUT:-}" ] && _args+=(-e "TOOL_UPDATE_TIMEOUT=${TOOL_UPDATE_TIMEOUT}")
+
     # JDK version selection
     if [ -n "${JDK_VERSION:-}" ]; then
         _args+=(-e "JDK_VERSION=${JDK_VERSION}")
